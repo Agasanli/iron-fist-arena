@@ -33,6 +33,7 @@ export class Hud {
       <div class="combo c0"></div><div class="combo c1"></div>
       <div class="announce"></div>
       <div class="pause-ind">PAUSED</div>
+      <div class="net-ind"></div>
       <div class="train-panel">
         <div class="tp-title">TRAINING</div>
         <label>Dummy
@@ -54,7 +55,7 @@ export class Hud {
       </div>`;
     this.el = {
       timer: $(root, '.timer'), round: $(root, '.roundlabel'), announce: $(root, '.announce'),
-      combo: [$(root, '.c0'), $(root, '.c1')], pause: $(root, '.pause-ind'), train: $(root, '.train-panel'),
+      combo: [$(root, '.c0'), $(root, '.c1')], pause: $(root, '.pause-ind'), train: $(root, '.train-panel'), net: $(root, '.net-ind'),
     };
     this.side = ['p1', 'p2'].map((s) => {
       const b = $(root, '.fh.' + s);
@@ -75,7 +76,8 @@ export class Hud {
   setup(match) {
     this.match = match;
     const names = [match.f[0].cfg.name, match.f[1].cfg.name];
-    const tags = ['P1', match.mode === 'ai' ? 'CPU' : (match.training ? 'DUMMY' : 'P2')];
+    let tags = ['P1', match.mode === 'ai' ? 'CPU' : (match.training ? 'DUMMY' : 'P2')];
+    if (match.net) tags = match.net.role === 0 ? ['YOU', 'FRIEND'] : ['FRIEND', 'YOU'];
     this.side.forEach((s, i) => {
       s.img.src = getPortrait(match.f[i].cfg.id);
       s.name.textContent = names[i];
@@ -126,6 +128,15 @@ export class Hud {
   update(match, force) {
     if (!match) return;
     const el = this.el;
+    if (match.net) {
+      const n = match.net;
+      let txt = '', cls = '';
+      if (match.netDead) { txt = 'DISCONNECTED'; cls = 'bad'; }
+      else if (n.desync) { txt = 'OUT OF SYNC - leave and rejoin'; cls = 'bad'; }
+      else if (match.stallFrames > 20) { txt = 'WAITING FOR OPPONENT…'; cls = 'warn'; }
+      else txt = 'PING ' + n.ping + ' ms';
+      if (el.net.textContent !== txt) { el.net.textContent = txt; el.net.className = 'net-ind on ' + cls; }
+    } else if (el.net.className !== 'net-ind') { el.net.className = 'net-ind'; el.net.textContent = ''; }
     // timer / round
     const t = match.training ? '∞' : String(Math.ceil(match.timeLeft));
     if (el.timer.textContent !== t) el.timer.textContent = t;

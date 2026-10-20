@@ -188,3 +188,18 @@ kbd { background: #261746; border: 1px solid #4b3a78; border-bottom-width: 3px; 
 .cdetail p, .cdetail ul { grid-column: 1 / -1; margin: 2px 0; }
 .cdetail ul { padding-left: 18px; line-height: 1.45; }
 .select-panel { width: min(1060px, calc(100vw - 24px)); }
+
+/* ---- online ---- */
+.online-panel { width: min(900px, calc(100vw - 24px)); }
+.online-actions { gap: 12px; margin-top: 14px; }
+.online-actions .or { color: var(--dim); }
+.codeinput, .linkbox { background: rgba(255,255,255,.08); border: 1px solid var(--line); color: #fff; border-radius: 4px; padding: 10px 12px; font: 700 22px var(--font); letter-spacing: 4px; text-transform: uppercase; width: 190px; user-select: text; -webkit-user-select: text; }
+.codeinput:focus, .linkbox:focus { outline: 2px solid var(--accent); }
+.linkbox { width: 100%; font: 14px var(--body); letter-spacing: 0; text-transform: none; }
+.bigcode { font: 400 84px var(--font); letter-spacing: 14px; color: var(--accent); text-align: center; margin: 6px 0 10px; text-shadow: 0 0 24px rgba(255,170,40,.5); user-select: text; -webkit-user-select: text; }
+.lobby-panel { width: min(560px, calc(100vw - 24px)); text-align: center; }
+.lobby-panel .actions { justify-content: center; }
+.netmsg { min-height: 20px; color: #ffd9a0; }
+.net-ind { display: none; position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); font: 600 14px var(--body); letter-spacing: 1px; color: #bfe9ff; background: rgba(0,0,0,.55); padding: 3px 12px; border-radius: 12px; }
+.net-ind.on { display: block; }
+.net-ind.warn { color: #ffd54a; } .net-ind.bad { color: #ff7a7a; }

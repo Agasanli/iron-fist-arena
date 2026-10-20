@@ -30,6 +30,7 @@ sub-folder. Note that browsers will not load ES modules from `file://`, so serve
 | Menu item | What it does |
 |---|---|
 | **Play** | Quick fight against the AI using your saved characters / arena / difficulty |
+| **Online** | Play a friend over the internet with a room code or invite link (peer-to-peer, free, no account) |
 | **Local Multiplayer** | Two players, same keyboard (or gamepads) |
 | **Fight Against AI** | Choose both fighters, arena and **Easy / Normal / Hard** |
 | **Character Selection** | Browse the roster (stats, move names), pick defaults, preview arenas |
@@ -176,3 +177,17 @@ src/
 ```
 
 Gameplay logic (`Fighter`, `Match`, `AI`) is separate from drawing (`FighterRenderer`, `Arenas`, `Effects`), input, audio and UI.
+
+## Online play (room code)
+
+Main menu → **ONLINE**. One player picks a fighter and presses **CREATE ROOM**; the screen shows a 5-letter code and an
+invite link (`?room=CODE`). The friend opens the game, picks a fighter, and enters the code (or just opens the link) and presses **JOIN ROOM**.
+The room creator's arena and match settings (round time, best-of) are used. After a match both players must press **REMATCH**.
+
+How it works:
+
+* **Peer-to-peer (WebRTC via PeerJS).** The free public PeerJS cloud server is used only to match the room code; the game data goes straight between the two browsers, so there is no server of your own to run or pay for.
+* **Deterministic lockstep.** Both browsers simulate every 60 Hz tick from the same two inputs, so only inputs are sent (a few bytes per tick). A 4-tick (~67 ms) input delay hides latency; if the opponent's input is late the game briefly waits and shows "WAITING FOR OPPONENT". A state checksum is compared every second to detect desyncs.
+* The online match cannot be paused (Esc opens a menu while the fight continues). If one player leaves, the other sees a "Disconnected" screen.
+
+Limitations: connections between two very strict networks (symmetric NAT, some corporate or mobile networks) can fail because no TURN relay is included; try another network or a hotspot. Online play was verified with a simulated high-latency link (identical results on both sides over thousands of ticks) and with a real PeerJS handshake inside one browser; it has not yet been tried between two physical machines.

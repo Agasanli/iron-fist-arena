@@ -9,6 +9,7 @@ import { createPose, computePose, drawFighter, drawShadow, drawGhosts, drawTag }
 import { Effects } from '../systems/Effects.js';
 import { AI } from '../systems/AI.js';
 import { createInputState, clearInput } from '../systems/Input.js';
+import { encodeInput } from '../net/Session.js';
 import { getArena } from './Arenas.js';
 import { getSprite } from './Sprites.js';
 import { audio } from '../audio/AudioEngine.js';
@@ -25,7 +26,9 @@ export class Match {
   constructor(game, opts) {
     this.game = game;
     this.opts = opts;
-    this.mode = opts.mode;                    // 'ai' | 'versus' | 'training'
+    this.mode = opts.mode;                    // 'ai' | 'versus' | 'training' | 'online'
+    this.net = opts.net || null;              // lockstep session for online play
+    this.netDead = false; this.localBlocked = false; this.stallFrames = 0;
     this.training = opts.mode === 'training';
     this.hud = game.hud;
     this.input = game.input;
@@ -45,8 +48,8 @@ export class Match {
     this.pending = [];
 
     this.round = 1;
-    this.roundTime = settings.roundTime;
-    this.winsNeeded = settings.roundsToWin;
+    this.roundTime = opts.roundTime || settings.roundTime;
+    this.winsNeeded = opts.roundsToWin || settings.roundsToWin;
     this.f[0].wins = 0; this.f[1].wins = 0;
     this.f[0].resetStats(); this.f[1].resetStats();
 
@@ -380,7 +383,37 @@ export class Match {
   }
 
   // ======================================================== simulation
+  // ---- online lockstep -------------------------------------------------------
+  sampleLocal() {
+    if (this.over || this.localBlocked) { this.input.poll(0, this.netTmp = this.netTmp || createInputState()); return 0; }
+    this.netTmp = this.netTmp || createInputState();
+    return encodeInput(this.input.poll(0, this.netTmp));
+  }
+
+  /** A cheap fingerprint of the simulation, compared between the two machines once per second. */
+  stateHash() {
+    let h = 17;
+    const mix = (v) => { h = (Math.imul(h, 31) + (v | 0)) | 0; };
+    for (const f of this.f) {
+      mix(f.x * 100); mix(f.y * 100); mix(f.vx * 100); mix(f.vy * 100); mix(f.hp); mix(f.meter * 100);
+      mix(f.stateTick); mix(f.moveTick); mix(f.state.length); mix(f.wins); mix(f.cdSpecial);
+    }
+    mix(this.timeLeft * 1000); mix(this.round);
+    return h;
+  }
+
+  /** Returns false when the remote input for the next tick has not arrived yet (the sim waits). */
+  netStep() {
+    const n = this.net, nt = this.gtick + 1;
+    n.ensureLocal(nt + n.delay, () => this.sampleLocal());
+    if (!n.fill(nt, this.in)) { this.stallFrames++; return false; }
+    this.stallFrames = 0;
+    if (nt % 60 === 0) n.sendHash(nt, this.stateHash());
+    return true;
+  }
+
   pollInputs() {
+    if (this.net) return;                     // online inputs were already filled in by netStep()
     const inp = this.in;
     this.input.poll(0, inp[0]);
     if (this.mode === 'versus') this.input.poll(1, inp[1]);
@@ -400,6 +433,10 @@ export class Match {
 
   tick() {
     if (this.destroyed || this.paused) return;
+    if (this.net) {
+      if (this.netDead) return;
+      if (!this.netStep()) return false;
+    }
     this.gtick++;
     this.time += TICK;
     this.phaseTick++;
@@ -607,8 +644,14 @@ export class Match {
     for (const p of this.projectiles) if (p.active) p.draw(ctx, this.time);
     this.fx.draw(ctx);
     if (this.phase === 'fight' || this.phase === 'intro') {
-      drawTag(ctx, f[0], 'P1', '#4aa8ff');
-      drawTag(ctx, f[1], this.mode === 'ai' ? 'CPU' : (this.training ? 'DUMMY' : 'P2'), '#ff5a5a');
+      if (this.net) {
+        const me = this.net.role;
+        drawTag(ctx, f[0], me === 0 ? 'YOU' : 'FRIEND', '#4aa8ff');
+        drawTag(ctx, f[1], me === 1 ? 'YOU' : 'FRIEND', '#ff5a5a');
+      } else {
+        drawTag(ctx, f[0], 'P1', '#4aa8ff');
+        drawTag(ctx, f[1], this.mode === 'ai' ? 'CPU' : (this.training ? 'DUMMY' : 'P2'), '#ff5a5a');
+      }
     }
   }
 

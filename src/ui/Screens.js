@@ -122,6 +122,7 @@ export class UI {
         break;
       case 'Enter':
         if (tag === 'INPUT' && e.target.type === 'checkbox') { e.target.click(); e.preventDefault(); }
+        else if (tag === 'INPUT' && e.target.id === 'roomcode') { e.preventDefault(); this.do_join(); }
         break;
       default:
     }
@@ -136,6 +137,7 @@ export class UI {
         <nav class="menu-list">
           <button class="btn primary" data-act="play" data-autofocus>PLAY <small>Quick fight vs AI</small></button>
           <button class="btn" data-act="mode" data-mode="versus">LOCAL MULTIPLAYER</button>
+          <button class="btn" data-act="goto" data-to="online">ONLINE <small>Play a friend with a room code</small></button>
           <button class="btn" data-act="mode" data-mode="ai">FIGHT AGAINST AI</button>
           <button class="btn" data-act="mode" data-mode="pick">CHARACTER SELECTION</button>
           <button class="btn" data-act="mode" data-mode="training">TRAINING MODE</button>
@@ -210,6 +212,99 @@ export class UI {
         <ul><li><b>Light</b> ${m.light.name}</li><li><b>Heavy</b> ${m.heavy.name}</li><li><b>Special</b> ${m.special.name}</li><li><b>Ultimate</b> ${m.ultimate.name}</li></ul>`;
     });
     this.game.backdrop.set(settings.p1Char, settings.p2Char, settings.arena);
+  }
+
+  // ------------------------------------------------------------ ONLINE
+  screen_online({ room, msg } = {}) {
+    const tiles = CHARACTER_IDS.map((id) => {
+      const c = CHARACTERS[id];
+      return `<button class="btn tile" data-act="pickchar" data-p="0" data-id="${id}" style="--c1:${c.color};--c2:${c.color2}" title="${esc(c.name)}">
+        <img src="${getPortrait(id)}" alt=""><span>${c.name}</span></button>`;
+    }).join('');
+    const arenas = ARENAS.map((a) => `<button class="btn chip ${settings.arena === a.id ? 'sel' : ''}" data-act="pickarena" data-id="${a.id}">${a.name}</button>`).join('');
+    return `
+      <div class="panel online-panel">
+        <h2>ONLINE · PLAY A FRIEND</h2>
+        <p class="note">One player creates a room and sends the code (or the invite link) to the other. Both players need this page open. The match runs directly between your two browsers.</p>
+        <h3>YOUR FIGHTER</h3>
+        <div class="tiles">${tiles}</div>
+        <div class="row"><span class="lbl">ARENA</span>${arenas}</div>
+        <div class="note">The room creator decides the arena and match settings.</div>
+        <div class="row online-actions">
+          <button class="btn primary" data-act="create" data-autofocus>CREATE ROOM</button>
+          <span class="or">or</span>
+          <input id="roomcode" class="codeinput" maxlength="8" autocomplete="off" spellcheck="false" placeholder="ROOM CODE" value="${esc(room || '')}">
+          <button class="btn primary" data-act="join">JOIN ROOM</button>
+        </div>
+        <div id="netmsg" class="note netmsg">${esc(msg || '')}</div>
+        <div class="actions"><button class="btn" data-act="back">BACK</button></div>
+      </div>`;
+  }
+  after_online({ room }) {
+    this.refreshSelect();
+    if (room) { const j = this.root.querySelector('[data-act="join"]'); if (j) j.focus(); }
+  }
+  setNetMsg(txt) { const n = this.root.querySelector('#netmsg'); if (n) n.textContent = txt; }
+
+  do_create() {
+    const s = this.game.newSession();
+    this.setNetMsg('Creating room…');
+    s.host().then((code) => {
+      if (this.current && this.current.name === 'online') this.replace('lobby', { code });
+    }).catch((e) => { this.game.closeSession(); this.setNetMsg(this.game.netErrorText(e)); });
+  }
+
+  do_join() {
+    const input = this.root.querySelector('#roomcode');
+    const code = (input ? input.value : '').trim().toUpperCase();
+    if (code.length < 4) { this.setNetMsg('Enter the room code first.'); return; }
+    const s = this.game.newSession();
+    this.setNetMsg('Connecting to ' + code + '…');
+    s.join(code).then(() => this.setNetMsg('Connected! Waiting for the host to start…'))
+      .catch((e) => { this.game.closeSession(); this.setNetMsg(this.game.netErrorText(e)); });
+  }
+
+  screen_lobby({ code }) {
+    const link = location.origin + location.pathname + '?room=' + code;
+    return `
+      <div class="panel lobby-panel">
+        <h2>ROOM READY</h2>
+        <p class="note">Tell your friend to choose <b>ONLINE → JOIN ROOM</b> and type this code:</p>
+        <div class="bigcode">${code}</div>
+        <p class="note">or send them this link (it fills in the code for them):</p>
+        <input class="linkbox" readonly value="${esc(link)}" id="invitelink">
+        <div class="actions">
+          <button class="btn primary" data-act="copylink" data-autofocus>COPY LINK</button>
+          <button class="btn" data-act="cancelroom">CANCEL</button>
+        </div>
+        <div id="netmsg" class="note netmsg">Waiting for your friend…</div>
+      </div>`;
+  }
+  do_copylink() {
+    const v = this.root.querySelector('#invitelink').value;
+    const done = () => this.setNetMsg('Link copied! Waiting for your friend…');
+    try { navigator.clipboard.writeText(v).then(done, () => this.setNetMsg('Copy failed, select the link manually.')); } catch (e) { this.setNetMsg('Copy failed, select the link manually.'); }
+  }
+  do_cancelroom() { this.game.closeSession(); this.back(); }
+
+  screen_netmenu() {
+    return `
+      <div class="panel pause-panel">
+        <h2>MENU</h2>
+        <p class="note">Online matches cannot be paused: the fight keeps running while this menu is open and your fighter stands still.</p>
+        <nav class="menu-list">
+          <button class="btn primary" data-act="resume" data-autofocus>BACK TO THE FIGHT</button>
+          <button class="btn" data-act="quit">LEAVE MATCH</button>
+        </nav>
+      </div>`;
+  }
+  screen_netlost() {
+    return `
+      <div class="panel pause-panel">
+        <h2>DISCONNECTED</h2>
+        <p class="note">Your friend left the match or the connection was lost.</p>
+        <nav class="menu-list"><button class="btn primary" data-act="quit" data-autofocus>MAIN MENU</button></nav>
+      </div>`;
   }
 
   do_pickchar(t) {
@@ -387,13 +482,15 @@ export class UI {
   screen_matchend({ result, mode }) {
     const w = result.winner;
     const name = (i) => (i === 0 ? 'PLAYER 1' : (mode === 'ai' ? 'CPU' : 'PLAYER 2'));
-    const title = mode === 'ai' ? (w === 0 ? 'VICTORY' : 'DEFEAT') : `${name(w)} WINS`;
+    const role = this.game.session ? this.game.session.role : 0;
+    const title = mode === 'online' ? (w === role ? 'VICTORY' : 'DEFEAT')
+      : (mode === 'ai' ? (w === 0 ? 'VICTORY' : 'DEFEAT') : `${name(w)} WINS`);
     const [a, b] = result.stats;
     const cm = this.game.match;
     const names = [cm.f[0].cfg.name, cm.f[1].cfg.name];
     const row = (l, x, y) => `<tr><td>${x}</td><th>${l}</th><td>${y}</td></tr>`;
     return `
-      <div class="panel end-panel ${w === 0 || mode !== 'ai' ? 'win' : 'lose'}">
+      <div class="panel end-panel ${(mode === 'online' ? w === role : (w === 0 || mode !== 'ai')) ? 'win' : 'lose'}">
         <h1>${title}</h1>
         <div class="sub">${names[w]} takes the match ${cm.f[w].wins} – ${cm.f[1 - w].wins}</div>
         <table class="stats">
@@ -408,12 +505,15 @@ export class UI {
         </table>
         <div class="actions">
           <button class="btn primary" data-act="rematch" data-autofocus>REMATCH</button>
-          <button class="btn" data-act="reselect">CHARACTER SELECT</button>
+          ${mode === 'online' ? '' : '<button class="btn" data-act="reselect">CHARACTER SELECT</button>'}
           <button class="btn" data-act="quit">MAIN MENU</button>
         </div>
       </div>`;
   }
-  do_rematch() { this.game.rematch(); }
+  do_rematch(t) {
+    this.game.rematch();
+    if (this.game.session && this.game.match && this.game.match.net && t) { t.textContent = 'WAITING FOR FRIEND…'; t.disabled = true; }
+  }
   do_reselect() { const mode = this.game.match.mode; this.game.quitToMenu(false); this.show('select', { mode }); }
 }
 
