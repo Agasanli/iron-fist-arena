@@ -1,6 +1,5 @@
 import { MAX_HP } from '../game/config.js';
 import { getPortrait } from '../game/Sprites.js';
-import { CHARACTERS } from '../entities/characters.js';
 import { settings } from '../game/settings.js';
 
 const $ = (el, sel) => el.querySelector(sel);
@@ -20,15 +19,15 @@ function fighterBlock(side) {
   </div>`;
 }
 
-/** DOM heads-up display layered on top of the canvas. */
+/** DOM heads-up display layered on top of the canvas. Supports 2 or 4 fighters (2 per side in team mode). */
 export class Hud {
   constructor(root) {
     this.root = root;
     root.innerHTML = `
       <div class="hud-top">
-        ${fighterBlock('p1')}
+        <div class="side left"></div>
         <div class="hud-center"><div class="timer">60</div><div class="roundlabel">ROUND 1</div></div>
-        ${fighterBlock('p2')}
+        <div class="side right"></div>
       </div>
       <div class="combo c0"></div><div class="combo c1"></div>
       <div class="announce"></div>
@@ -54,18 +53,12 @@ export class Hud {
         <button class="tp-reset" type="button">Reset positions (Backspace)</button>
       </div>`;
     this.el = {
+      top: $(root, '.hud-top'), left: $(root, '.side.left'), right: $(root, '.side.right'),
       timer: $(root, '.timer'), round: $(root, '.roundlabel'), announce: $(root, '.announce'),
       combo: [$(root, '.c0'), $(root, '.c1')], pause: $(root, '.pause-ind'), train: $(root, '.train-panel'), net: $(root, '.net-ind'),
     };
-    this.side = ['p1', 'p2'].map((s) => {
-      const b = $(root, '.fh.' + s);
-      return {
-        b, img: $(b, 'img'), name: $(b, '.pname'), tag: $(b, '.tag'), pips: $(b, '.pips'), fill: $(b, '.fill'), trail: $(b, '.trail'),
-        mfill: $(b, '.mfill'), meter: $(b, '.meter'), sfill: $(b, '.sfill'), spec: $(b, '.spec'), trailV: MAX_HP, last: {},
-      };
-    });
+    this.side = [];
     this.match = null;
-    this.trainBound = false;
     $(root, '.tp-reset').addEventListener('click', () => this.match && this.match.resetPositions());
     this.hide();
   }
@@ -75,17 +68,26 @@ export class Hud {
 
   setup(match) {
     this.match = match;
-    const names = [match.f[0].cfg.name, match.f[1].cfg.name];
-    let tags = ['P1', match.mode === 'ai' ? 'CPU' : (match.training ? 'DUMMY' : 'P2')];
-    if (match.net) tags = match.net.role === 0 ? ['YOU', 'FRIEND'] : ['FRIEND', 'YOU'];
-    this.side.forEach((s, i) => {
-      s.img.src = getPortrait(match.f[i].cfg.id);
-      s.name.textContent = names[i];
-      s.tag.textContent = tags[i];
-      s.trailV = MAX_HP;
-      s.b.style.setProperty('--c1', match.f[i].cfg.color);
-      s.b.style.setProperty('--c2', match.f[i].cfg.color2);
-      s.last = {};
+    this.el.top.classList.toggle('team', match.teamMode);
+    // one block per fighter: team 0 on the left, team 1 on the right
+    this.el.left.innerHTML = ''; this.el.right.innerHTML = '';
+    this.side = [];
+    const html = (cls) => { const d = document.createElement('div'); d.innerHTML = fighterBlock(cls).trim(); return d.firstChild; };
+    match.f.forEach((f) => {
+      const t = f.team;
+      const b = html(t === 0 ? 'p1' : 'p2');
+      (t === 0 ? this.el.left : this.el.right).appendChild(b);
+      const s = {
+        b, img: $(b, 'img'), name: $(b, '.pname'), tag: $(b, '.tag'), pips: $(b, '.pips'), fill: $(b, '.fill'), trail: $(b, '.trail'),
+        mfill: $(b, '.mfill'), meter: $(b, '.meter'), sfill: $(b, '.sfill'), spec: $(b, '.spec'), trailV: MAX_HP, last: {},
+        firstOfTeam: !this.side.some((o) => o.team === t), team: t,
+      };
+      s.img.src = getPortrait(f.cfg.id);
+      s.name.textContent = f.cfg.name;
+      s.tag.textContent = match.tagFor(f.index);
+      b.style.setProperty('--c1', f.cfg.color);
+      b.style.setProperty('--c2', f.cfg.color2);
+      this.side.push(s);
     });
     this.el.train.classList.toggle('on', match.training);
     this.el.pause.classList.remove('on');
@@ -145,26 +147,29 @@ export class Hud {
     if (el.round.textContent !== rl) el.round.textContent = rl;
     el.combo[0].style.display = el.combo[1].style.display = settings.comboCounter ? '' : 'none';
 
-    for (let i = 0; i < 2; i++) {
+    for (let i = 0; i < match.f.length; i++) {
       const f = match.f[i], s = this.side[i];
+      if (!s) continue;
       const hp = Math.max(0, f.hp);
       s.fill.style.transform = `scaleX(${hp / MAX_HP})`;
       // trailing damage bar
       if (s.trailV > hp) s.trailV = Math.max(hp, s.trailV - (force ? 999 : 2.4)); else s.trailV = hp;
       s.trail.style.transform = `scaleX(${s.trailV / MAX_HP})`;
       s.b.classList.toggle('low', hp < MAX_HP * 0.25);
+      s.b.classList.toggle('dead', f.ko);
       const m = Math.round(f.meter);
       s.mfill.style.transform = `scaleX(${m / 100})`;
       s.meter.classList.toggle('full', m >= 100);
-      const cd = f.cfg.moves.special.cooldown || 1;
+      const cd = f.moves.special.cooldown || 1;
       const ready = f.cdSpecial <= 0;
       s.sfill.style.transform = `scaleX(${ready ? 1 : 1 - f.cdSpecial / cd})`;
       s.spec.classList.toggle('ready', ready);
-      if (s.last.wins !== f.wins || s.last.need !== match.winsNeeded) {
-        s.last.wins = f.wins; s.last.need = match.winsNeeded;
+      const w = match.wins[s.team];
+      if (s.last.wins !== w || s.last.need !== match.winsNeeded) {
+        s.last.wins = w; s.last.need = match.winsNeeded;
         let h = '';
-        for (let k = 0; k < match.winsNeeded; k++) h += `<i class="${k < f.wins ? 'on' : ''}"></i>`;
-        s.pips.innerHTML = match.training ? '' : h;
+        if (s.firstOfTeam && !match.training) for (let k = 0; k < match.winsNeeded; k++) h += `<i class="${k < w ? 'on' : ''}"></i>`;
+        s.pips.innerHTML = h;
       }
     }
     if (match.training) {

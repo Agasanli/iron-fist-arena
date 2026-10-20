@@ -1,4 +1,5 @@
 import { GROUND, BOUND_L, BOUND_R, MAX_HP } from '../game/config.js';
+import { applyWeapon } from './weapons.js';
 
 const RANK = { light: 1, crouchLight: 1, heavy: 2, crouchHeavy: 2, special: 3, ultimate: 4 };
 const cap = (s) => s[0].toUpperCase() + s.slice(1);
@@ -8,9 +9,12 @@ const cap = (s) => s[0].toUpperCase() + s.slice(1);
  * No drawing here (see FighterRenderer) and no input reading (see Input / AI).
  */
 export class Fighter {
-  constructor(cfg, index) {
+  constructor(cfg, index, weapon = 'fists', team = index) {
     this.cfg = cfg;
     this.index = index;
+    this.team = team;
+    this.weapon = weapon;
+    this.moves = applyWeapon(cfg.moves, weapon);      // character moves with the weapon's modifiers
     this.wins = 0;
     this.stats = null;
     this.buffer = { action: null, ttl: 0 };
@@ -31,7 +35,7 @@ export class Fighter {
     this.meter = 0;
     this.state = 'idle'; this.stateTick = 0; this.t = 0;
     this.move = null; this.moveId = null; this.moveTick = 0;
-    this.hitDone = false; this.moveConnected = false; this.multiCount = 0; this.chain = 0;
+    this.hitDone = false; this.hitMask = 0; this.moveConnected = false; this.multiCount = 0; this.chain = 0;
     this.hitstun = 0; this.blockstun = 0; this.invuln = 0; this.lag = 0;
     this.comboTaken = 0; this.comboDmg = 0; this.juggle = 0; this.flash = 0;
     this.cdSpecial = 0; this.jumpBuf = 0;
@@ -237,11 +241,11 @@ export class Fighter {
   }
 
   startMove(id, m) {
-    const mv = this.cfg.moves[id];
+    const mv = this.moves[id];
     if (!mv) return;
     this.move = mv; this.moveId = id; this.moveTick = 0;
     this.state = 'attack'; this.stateTick = 0;
-    this.hitDone = false; this.moveConnected = false; this.multiCount = 0;
+    this.hitDone = false; this.hitMask = 0; this.moveConnected = false; this.multiCount = 0;
     this.buffer.ttl = 0; this.running = false;
     if (id === 'special' && mv.cooldown) this.cdSpecial = mv.cooldown;
     if (!mv.air) this.vx *= 0.3;

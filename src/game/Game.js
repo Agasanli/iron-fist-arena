@@ -9,6 +9,8 @@ import { Backdrop } from './Backdrop.js';
 import { loadSprites } from './Sprites.js';
 import { audio } from '../audio/AudioEngine.js';
 import { Session, describeNetError } from '../net/Session.js';
+import { CHARACTER_IDS } from '../entities/characters.js';
+import { resolveWeapon } from './matchSetup.js';
 
 /**
  * Top-level application object. Owns the single requestAnimationFrame loop, the canvas,
@@ -104,7 +106,8 @@ export class Game {
   startMatch(opts) {
     if (this.match) this.match.destroy();
     this.lastOpts = opts;
-    this.input.solo = opts.mode !== 'versus';
+    const humans = opts.slots.filter((s) => s.ctrl === 'p1' || s.ctrl === 'p2').length;
+    this.input.solo = !!opts.net || humans <= 1;            // one human: arrows / numpad also drive player 1
     audio.unlock();
     this.hud.hide();
     this.match = new Match(this, opts);
@@ -115,27 +118,20 @@ export class Game {
   }
 
   rematch() {
-    if (this.session && this.match && this.match.net) {          // online: both players must agree
-      this.session.rematchLocal = true;
-      this.session.send({ t: 'rematch' });
-      this.checkRematch();
-      return;
-    }
+    if (this.session && this.match && this.match.net) { this.rematchOnline(); return; }   // online: everybody must agree
     if (!this.lastOpts) return;
     this.ui.hide();
     this.startMatch(this.lastOpts);
   }
+
 
   // ------------------------------------------------------------ online play
   newSession() {
     this.closeSession();
     const s = new Session();
     this.session = s;
-    s.on('connected', () => {
-      if (s.role === 1) s.send({ t: 'hello', char: settings.p1Char });   // guest introduces itself
-      else this.ui.setNetMsg && this.ui.setNetMsg('Friend connected! Starting…');
-    });
-    s.on('msg', (m) => this.onNetMsg(m));
+    s.on('roster', () => this.onRoster());
+    s.on('msg', (m, entry) => this.onNetMsg(m, entry));
     s.on('close', () => this.onNetClosed());
     s.on('desync', (k) => console.warn('Online desync detected at tick', k));
     return s;
@@ -145,50 +141,89 @@ export class Game {
     if (this.session) { this.session.close(); this.session = null; }
   }
 
-  onNetMsg(m) {
+  /** Host: somebody joined or left. A 1v1 room starts as soon as both players are in. */
+  onRoster() {
+    const s = this.session;
+    if (!s || !s.isHost) return;
+    if (s.size === 2 && !s.started && s.roster().length >= 2) { this.hostStart(); return; }
+    this.ui.refreshLobby();
+  }
+
+  onNetMsg(m, entry) {
     const s = this.session;
     if (!s) return;
-    if (m.t === 'hello' && s.role === 0) {                       // host: both players are here, pick the settings and start
-      s.peerChar = m.char;
-      s.cfg = { p1: settings.p1Char, p2: m.char, arena: settings.arena, roundTime: settings.roundTime, wins: settings.roundsToWin };
-      s.rematchLocal = s.rematchRemote = false;
-      this.hostStart();
-    } else if (m.t === 'start' && s.role === 1) {
-      this.startOnline(m);
-    } else if (m.t === 'rematch') {
-      s.rematchRemote = true;
-      this.checkRematch();
+    switch (m.t) {
+      case 'roster':                                              // guest: the room list changed
+        s.guestRoster = m; s.role = m.you; s.size = m.size;
+        this.ui.refreshLobby();
+        break;
+      case 'start':                                               // guest: the host started the match
+        s.role = m.you;
+        this.startOnline(m);
+        break;
+      case 'full': this.closeSession(); this.ui.replace('online', { msg: 'This room is full.' }); break;
+      case 'desync': s.desync = true; break;
+      case 'bye': this.onNetClosed(); break;
+      case 'rematch':                                             // host: a guest wants a rematch
+        if (s.isHost) { s.rematch.add(m.slot); this.checkRematch(); }
+        break;
+      default:
     }
   }
 
-  hostStart() {
+  /** Host: build the slot list (CPU fighters fill empty places) and start. `reuse` = rematch with the same setup. */
+  hostStart(reuse = false) {
     const s = this.session;
-    const cfg = { t: 'start', e: s.epoch + 1, ...s.cfg };
-    s.send(cfg);
-    this.startOnline(cfg);
+    if (!s || !s.isHost) return;
+    const players = s.roster();
+    if (!reuse || !s.cfg) {
+      const N = s.size, slots = new Array(N).fill(null);
+      const usedChars = new Set(players.map((p) => p.char));
+      players.forEach((p) => { slots[p.slot] = { char: p.char, weapon: p.weapon || 'fists', ctrl: 'net' }; });
+      for (let i = 0; i < N; i++) {
+        if (slots[i]) continue;
+        const char = CHARACTER_IDS.find((c) => !usedChars.has(c)) || CHARACTER_IDS[i % CHARACTER_IDS.length];
+        usedChars.add(char);
+        slots[i] = { char, weapon: resolveWeapon('random'), ctrl: 'cpu' };
+      }
+      s.cfg = { slots, arena: settings.arena, roundTime: settings.roundTime, wins: settings.roundsToWin, difficulty: settings.difficulty };
+    }
+    s.humans = players.map((p) => p.slot);
+    s.bots = s.cfg.slots.map((x, i) => (x.ctrl === 'cpu' ? i : -1)).filter((i) => i >= 0);
+    s.rematch.clear();
+    s.started = true;
+    const e = s.epoch + 1;
+    for (const c of s.conns) s.sendTo(c.conn, { t: 'start', e, you: c.slot, ...s.cfg });
+    this.startOnline({ e, you: s.role, ...s.cfg });
+  }
+
+  /** Called by the rematch button. Everybody must agree; the host then restarts with the same setup. */
+  rematchOnline() {
+    const s = this.session;
+    if (!s) return;
+    if (s.isHost) { s.rematch.add(s.role); this.checkRematch(); }
+    else s.send({ t: 'rematch', slot: s.role });
   }
 
   checkRematch() {
     const s = this.session;
-    if (s && s.role === 0 && s.rematchLocal && s.rematchRemote) {
-      s.rematchLocal = s.rematchRemote = false;
-      this.hostStart();
-    }
+    if (s && s.isHost && s.humans.every((sl) => s.rematch.has(sl))) this.hostStart(true);
   }
 
   startOnline(cfg) {
     const s = this.session;
-    s.resetLock(cfg.e);
-    s.rematchLocal = s.rematchRemote = false;
+    s.started = true;
+    s.resetLock(cfg.e, cfg.slots.length);
     this.ui.hide();
     this.startMatch({
-      mode: 'online', net: s, p1: cfg.p1, p2: cfg.p2, arena: cfg.arena,
-      roundTime: cfg.roundTime, roundsToWin: cfg.wins, difficulty: 'normal',
+      mode: 'online', net: s, slots: cfg.slots, arena: cfg.arena,
+      roundTime: cfg.roundTime, roundsToWin: cfg.wins, difficulty: cfg.difficulty || 'normal',
     });
   }
 
   onNetClosed() {
     if (this.match && this.match.net) {
+      if (this.match.netDead) return;
       this.match.netDead = true;
       this.input.gameActive = false;
       this.touch.setVisible(false);

@@ -203,3 +203,52 @@ kbd { background: #261746; border: 1px solid #4b3a78; border-bottom-width: 3px; 
 .net-ind { display: none; position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); font: 600 14px var(--body); letter-spacing: 1px; color: #bfe9ff; background: rgba(0,0,0,.55); padding: 3px 12px; border-radius: 12px; }
 .net-ind.on { display: block; }
 .net-ind.warn { color: #ffd54a; } .net-ind.bad { color: #ff7a7a; }
+
+/* ---- HUD: team layout (2 fighters per side) ---- */
+#hud .side { flex: 1; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+#hud .hud-top.team { align-items: flex-start; }
+#hud .hud-top.team .fh .portrait { width: 52px; height: 52px; border-width: 2px; }
+#hud .hud-top.team .name-row { font-size: 19px; height: 22px; }
+#hud .hud-top.team .name-row .tag { font-size: 11px; padding: 0 5px; }
+#hud .hud-top.team .hp { height: 18px; border-width: 2px; outline-width: 1px; }
+#hud .hud-top.team .meter-row { margin-top: 3px; }
+#hud .hud-top.team .meter, #hud .hud-top.team .spec { height: 9px; border-width: 1px; }
+#hud .hud-top.team .mlabel, #hud .hud-top.team .slabel { display: none; }
+#hud .hud-top.team .spec { width: 70px; }
+#hud .hud-top.team .pips i { width: 12px; height: 12px; }
+#hud .hud-top.team .combo { top: 190px; }
+.fh.dead { opacity: .45; filter: grayscale(.8); }
+
+#hud .side .fh { flex: none; }
+
+/* ---- weapons / team / lobby ---- */
+.wrow { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin: 6px 0 2px; }
+.wlabel { font-family: var(--font); letter-spacing: 2px; color: var(--dim); font-size: 14px; margin-right: 4px; }
+.wchip { font-size: 13px !important; padding: 3px 7px !important; letter-spacing: 1px !important; }
+.wdesc { flex-basis: 100%; font-size: 12px; color: var(--dim); min-height: 16px; }
+.team-panel { width: min(1100px, calc(100vw - 24px)); }
+.team-grid { display: grid; grid-template-columns: 1fr auto 1fr; gap: 14px; align-items: start; }
+.team-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.team-col h3.blue, .lteams h3.blue { color: #4aa8ff; } .team-col h3.red, .lteams h3.red { color: #ff6b6b; }
+.tslot { background: rgba(255,255,255,.05); border: 1px solid var(--line); border-top: 3px solid var(--c1, #fff); border-radius: 8px; padding: 8px; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.tslot.human { background: rgba(255,207,74,.09); }
+.tslot-head { font: 400 15px var(--font); letter-spacing: 2px; color: var(--dim); }
+.tslot-img { width: 70px; height: 70px; border-radius: 6px; object-fit: cover; border: 2px solid var(--c1, #fff); background: #120a20; }
+.tslot-name { font: 400 22px var(--font); letter-spacing: 2px; color: var(--c1, #fff); }
+.cyc { display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 4px; }
+.cycv { flex: 1; text-align: center; font: 400 15px var(--font); letter-spacing: 1px; }
+.cyc .chip { padding: 2px 9px; transform: none !important; }
+.lteams { display: grid; grid-template-columns: 1fr auto 1fr; gap: 12px; align-items: start; text-align: left; margin: 8px 0; }
+.lteams h3 { margin: 4px 0; }
+.lslot { display: flex; align-items: center; gap: 10px; padding: 6px 8px; margin: 5px 0; background: rgba(255,255,255,.06); border-left: 3px solid var(--c1, #666); border-radius: 6px; min-height: 52px; }
+.lslot img { width: 44px; height: 44px; border-radius: 6px; object-fit: cover; }
+.lslot.empty { opacity: .55; border-left-color: #555; }
+.lname { font: 400 20px var(--font); letter-spacing: 2px; } .lsub { font-size: 12px; color: var(--dim); }
+.lobby-panel { width: min(640px, calc(100vw - 24px)); }
+.stats.team th { text-align: left; font-size: 11px; } .stats.team td { font-size: 18px; width: auto; text-align: center; }
+.stats.team td.who { text-align: left; } .stats.team tr.tm0 td.who { color: #6db8ff; } .stats.team tr.tm1 td.who { color: #ff8a8a; }
+.stats.team td small { font: 11px var(--body); color: var(--dim); }
+.btn[disabled] { opacity: .4; pointer-events: none; }
+
+.announce { white-space: nowrap; }
+.announce.win { font-size: 96px; }

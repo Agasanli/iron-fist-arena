@@ -16,17 +16,23 @@ import { audio } from '../audio/AudioEngine.js';
 import { ARENAS } from './config.js';
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
-const START_X = [WORLD_W / 2 - 190, WORLD_W / 2 + 190];
+const CX = WORLD_W / 2;
+const TEAM_COLORS = ['#4aa8ff', '#ff5a5a'];
+const hit = (a, b) => a.x0 < b.x1 && a.x1 > b.x0 && a.y0 < b.y1 && a.y1 > b.y0;
 
 /**
  * One fight session: owns fighters, projectiles, effects, camera and the round/match flow.
+ * Supports 2 fighters (1v1) or 4 fighters (2v2 teams: slots 0-1 vs slots 2-3).
  * The Game drives it with fixed 60 Hz tick() calls and one render() per animation frame.
+ *
+ * opts.slots = [{ char, weapon, ctrl }]  where ctrl is 'p1' | 'p2' (local keyboards), 'cpu',
+ * 'dummy' (training) or 'net' (an online human; the slot index is the player's slot).
  */
 export class Match {
   constructor(game, opts) {
     this.game = game;
     this.opts = opts;
-    this.mode = opts.mode;                    // 'ai' | 'versus' | 'training' | 'online'
+    this.mode = opts.mode;                    // 'ai' | 'versus' | 'training' | 'online' | 'team'
     this.net = opts.net || null;              // lockstep session for online play
     this.netDead = false; this.localBlocked = false; this.stallFrames = 0;
     this.training = opts.mode === 'training';
@@ -35,29 +41,34 @@ export class Match {
     this.arenaInfo = ARENAS.find((a) => a.id === opts.arena) || ARENAS[0];
     this.arena = getArena(this.arenaInfo.id);
 
-    this.f = [new Fighter(CHARACTERS[opts.p1], 0), new Fighter(CHARACTERS[opts.p2], 1)];
-    this.mirror = opts.p1 === opts.p2;
-    this.sprites = [getSprite(opts.p1, false), getSprite(opts.p2, this.mirror)];
-    this.poses = [createPose(), createPose()];
-    this.in = [createInputState(), createInputState()];
-    this.ai = (this.mode === 'ai' || this.training) ? new AI(this.training ? 'normal' : opts.difficulty) : null;
-    this.projectiles = Array.from({ length: 8 }, () => new Projectile());
+    const slots = this.slots = opts.slots;
+    this.N = slots.length;
+    this.f = slots.map((s, i) => new Fighter(CHARACTERS[s.char], i, s.weapon || 'fists', this.teamOf(i)));
+    // a character that also appears on the other team gets the recoloured sprite
+    this.sprites = slots.map((s, i) => getSprite(s.char, slots.some((o, j) => j < i && o.char === s.char && this.teamOf(j) !== this.teamOf(i))));
+    this.poses = slots.map(() => createPose());
+    this.in = slots.map(() => createInputState());
+    this.ais = slots.map((s) => (s.ctrl === 'cpu' ? new AI(opts.difficulty || 'normal') : null));
+    if (this.training) this.ais[1] = new AI('normal');
+    this.foe = new Array(this.N).fill(null);
+    this.projectiles = Array.from({ length: 12 }, () => new Projectile());
     this.fx = new Effects();
     this.rA = { x0: 0, x1: 0, y0: 0, y1: 0 };
     this.rB = { x0: 0, x1: 0, y0: 0, y1: 0 };
     this.pending = [];
+    this.fired = [];
 
     this.round = 1;
     this.roundTime = opts.roundTime || settings.roundTime;
     this.winsNeeded = opts.roundsToWin || settings.roundsToWin;
-    this.f[0].wins = 0; this.f[1].wins = 0;
-    this.f[0].resetStats(); this.f[1].resetStats();
+    this.wins = [0, 0];                       // round wins per TEAM
+    for (const f of this.f) f.resetStats();
 
-    this.cam = { cx: WORLD_W / 2, z: 1 };
+    this.cam = { cx: CX, z: 1 };
     this.shake = 0; this.flashA = 0; this.hitstop = 0; this.cine = null;
     this.timeScale = 1; this.time = 0; this.gtick = 0;
     this.paused = false; this.over = false; this.destroyed = false;
-    this.comboShow = [null, null];
+    this.comboShow = [null, null];            // per team
     this.tr = { infiniteHp: true, infiniteMeter: false, dummy: 'stand', last: 0, lastCombo: 0, lastComboDmg: 0, maxCombo: 0, total: 0, idleTicks: 0 };
     this.result = null;
 
@@ -67,9 +78,28 @@ export class Match {
     audio.playMusic(this.arenaInfo.track);
   }
 
+  teamOf(i) { return this.N === 2 ? i : (i < 2 ? 0 : 1); }
+  get teamMode() { return this.N === 4; }
+  teamHp(t) { let s = 0; for (const f of this.f) if (f.team === t) s += Math.max(0, f.hp); return s; }
+  teamDown(t) { return this.f.every((f) => f.team !== t || f.ko || f.hp <= 0); }
+  teamName(t) {
+    if (this.teamMode) return t === 0 ? 'TEAM BLUE' : 'TEAM RED';
+    return t === 0 ? 'PLAYER 1' : (this.mode === 'ai' ? 'CPU' : 'PLAYER 2');
+  }
+  tagFor(i) {
+    const c = this.slots[i].ctrl;
+    if (this.net) return i === this.net.role ? 'YOU' : (c === 'cpu' ? 'CPU' : 'P' + (i + 1));
+    return c === 'p1' ? 'P1' : c === 'p2' ? 'P2' : c === 'cpu' ? 'CPU' : c === 'dummy' ? 'DUMMY' : 'P' + (i + 1);
+  }
+
+  startX(i) {
+    if (this.N === 2) return CX + (i === 0 ? -190 : 190);
+    return CX + [-340, -170, 170, 340][i];
+  }
+
   // ======================================================== flow
   beginRound() {
-    this.f[0].reset(START_X[0], 1); this.f[1].reset(START_X[1], -1);
+    this.f.forEach((f, i) => f.reset(this.startX(i), this.teamOf(i) === 0 ? 1 : -1));
     for (const p of this.projectiles) p.active = false;
     this.fx.clear();
     this.timeLeft = this.training ? 99 : this.roundTime;
@@ -77,8 +107,8 @@ export class Match {
     this.timeScale = 1; this.hitstop = 0; this.cine = null; this.shake = 0; this.flashA = 0;
     this.comboShow[0] = this.comboShow[1] = null;
     this.hud.clearCombo(0); this.hud.clearCombo(1);
-    if (this.ai) this.ai.reset();
-    this.cam.cx = WORLD_W / 2; this.cam.z = 1;
+    for (const a of this.ais) if (a) a.reset();
+    this.cam.cx = CX; this.cam.z = 1;
     this.perfect = false;
     this.input.flush();
     this.hud.update(this, true);
@@ -91,11 +121,11 @@ export class Match {
 
   /** Training: put both fighters back at the starting positions. */
   resetPositions() {
-    for (let i = 0; i < 2; i++) {
-      const f = this.f[i], hp = f.hp, meter = f.meter;
-      f.reset(START_X[i], i === 0 ? 1 : -1);
+    this.f.forEach((f, i) => {
+      const hp = f.hp, meter = f.meter;
+      f.reset(this.startX(i), this.teamOf(i) === 0 ? 1 : -1);
       f.hp = hp; f.meter = meter;
-    }
+    });
     for (const p of this.projectiles) p.active = false;
     this.hitstop = 0; this.cine = null;
     this.comboShow[0] = this.comboShow[1] = null;
@@ -103,42 +133,42 @@ export class Match {
     this.hud.announce('RESET', 'small');
   }
 
-  endRound(winnerIdx, timeUp) {
-    // winnerIdx: 0 / 1 / -1 draw
+  endRound(winner, timeUp) {
+    // winner: team 0 / 1, or -1 for a draw
     this.phase = 'roundEnd'; this.phaseTick = 0; this.timeScale = 1;
-    this.roundWinner = winnerIdx;
-    if (winnerIdx >= 0) {
-      this.f[winnerIdx].wins++;
-      const loser = this.f[1 - winnerIdx];
-      this.perfect = this.f[winnerIdx].hp >= MAX_HP && !timeUp;
-      void loser;
+    this.roundWinner = winner;
+    if (winner >= 0) {
+      this.wins[winner]++;
+      this.perfect = !timeUp && this.f.every((f) => f.team !== winner || f.hp >= MAX_HP);
     } else if (!this.training) {
-      // draw: both fighters get a point (a final round is played if that ties a won match)
-      this.f[0].wins++; this.f[1].wins++;
+      this.wins[0]++; this.wins[1]++;         // draw: both get a point (a final round is played if that ties a won match)
     }
-    const name = (i) => (i === 0 ? 'PLAYER 1' : (this.mode === 'ai' ? 'CPU' : 'PLAYER 2'));
     let text, voice;
-    if (winnerIdx < 0) { text = 'DRAW'; voice = 'Draw'; }
-    else { text = `${name(winnerIdx)} WINS`; voice = winnerIdx === 0 ? 'Player one wins' : (this.mode === 'ai' ? 'C P U wins' : 'Player two wins'); }
+    if (winner < 0) { text = 'DRAW'; voice = 'Draw'; }
+    else {
+      text = `${this.teamName(winner)} WINS`;
+      voice = this.teamMode ? (winner === 0 ? 'Team blue wins' : 'Team red wins')
+        : (winner === 0 ? 'Player one wins' : (this.mode === 'ai' ? 'C P U wins' : 'Player two wins'));
+    }
     if (timeUp) this.hud.announce('TIME UP', 'small');
     setTimeout(() => { if (!this.destroyed && this.phase === 'roundEnd') { this.hud.announce(text, 'win'); audio.voice(voice); } }, timeUp ? 900 : 350);
     if (this.perfect) setTimeout(() => { if (!this.destroyed && this.phase === 'roundEnd') { this.hud.announce('PERFECT', 'perfect'); audio.voice('Perfect'); } }, 1700);
-    audio.sfx(winnerIdx === 0 || winnerIdx === 1 ? 'win' : 'bell');
+    audio.sfx(winner === 0 || winner === 1 ? 'win' : 'bell');
     this.hud.update(this, true);
   }
 
   finishRoundEnd() {
-    const [a, b] = [this.f[0].wins, this.f[1].wins], need = this.winsNeeded;
+    const [a, b] = this.wins, need = this.winsNeeded;
     if ((a >= need || b >= need) && a !== b) { this.endMatch(a > b ? 0 : 1); return; }
     this.round++;
     this.beginRound();
   }
 
-  endMatch(winnerIdx) {
+  endMatch(winner) {
     this.phase = 'matchEnd'; this.phaseTick = 0; this.over = true;
-    this.result = { winner: winnerIdx, stats: [this.f[0].stats, this.f[1].stats] };
+    this.result = { winner, stats: this.f.map((f) => f.stats), wins: this.wins.slice() };
     audio.stopMusic();
-    audio.sfx(this.mode === 'ai' && winnerIdx === 1 ? 'lose' : 'win');
+    audio.sfx(this.mode === 'ai' && winner === 1 ? 'lose' : 'win');
     this.game.onMatchEnd(this);
   }
 
@@ -159,6 +189,11 @@ export class Match {
   onMoveActive(f, mv) {
     const x = f.x + f.facing * 40, y = f.y - 120;
     if (mv.sfx === 'light' || mv.sfx === 'heavy' || mv.sfx === 'kick') audio.sfx('whoosh');
+    if (mv.weapon && mv.hitbox) {            // weapon swing trail
+      const hb = mv.hitbox;
+      this.fx.slash(f.x + f.facing * (hb.x + hb.w * 0.55), f.y - (hb.y - hb.h / 2), hb.w * 0.8, '#ffffff', f.facing > 0 ? -0.15 : 0.15 + Math.PI);
+      if (mv.weapon === 'hammer') this.addShake(2);
+    }
     if (mv.sfx === 'rush') { audio.sfx('rush'); this.fx.ring(f.x, GROUND, 120, f.cfg.color, 20); this.fx.burst(f.x - f.facing * 30, f.y - 60, 14, f.cfg.color, 7, 24); }
     if (mv.projectile) {
       const p = this.projectiles.find((q) => !q.active);
@@ -198,6 +233,7 @@ export class Match {
   applyThrow(a, d) {
     const dmg = 95;
     d.hp = Math.max(0, d.hp - dmg);
+    if (d.hp <= 0) d.ko = true;
     d.comboTaken = 1; d.comboDmg = dmg;
     d.state = 'airhit'; d.stateTick = 0; d.vy = -9; d.vx = a.facing * 5.5; d.y -= 2; d.juggle = 2; d.flash = 6;
     a.meter = Math.min(100, a.meter + dmg * 0.18); d.meter = Math.min(100, d.meter + dmg * 0.12);
@@ -216,8 +252,8 @@ export class Match {
     this.addShake(shake);
     if (settings.screenShake && power > 1.2 && !settings.reducedFx) this.flashA = Math.max(this.flashA, 0.22);
     if (settings.damageNumbers || this.training) this.fx.text(d.x + (Math.random() - 0.5) * 30, d.y - d.cfg.body.hurtH - 10, String(dmg), n > 3 ? '#ff7a3a' : '#fff', 24 + Math.min(14, dmg / 8));
-    this.comboShow[a.index] = { hits: n, dmg: d.comboDmg, t: 0 };
-    if (n >= 2 && settings.comboCounter) this.hud.setCombo(a.index, n, d.comboDmg);
+    this.comboShow[a.team] = { hits: n, dmg: d.comboDmg, t: 0, victim: d };
+    if (n >= 2 && settings.comboCounter) this.hud.setCombo(a.team, n, d.comboDmg);
     a.stats.maxCombo = Math.max(a.stats.maxCombo, n);
     if (this.training) {
       const t = this.tr;
@@ -227,7 +263,7 @@ export class Match {
   }
 
   resolveHit(a, d, mv, rect, rectB, dir, final) {
-    if (d.invuln > 0 || d.state === 'down' || d.state === 'getup' || d.state === 'grabbed' || d.state === 'win') return false;
+    if (d.ko || d.invuln > 0 || d.state === 'down' || d.state === 'getup' || d.state === 'grabbed' || d.state === 'win') return false;
     if (d.state === 'airhit' && d.juggle >= 2) return false;
     if (mv.groundOnly && !d.grounded) return false;
     const cx = (Math.max(rect.x0, rectB.x0) + Math.min(rect.x1, rectB.x1)) / 2;
@@ -277,6 +313,7 @@ export class Match {
     d.hp = Math.max(0, d.hp - dmg);
     d.comboDmg = (inCombo ? d.comboDmg : 0) + dmg;
     const ko = d.hp <= 0;
+    if (ko) d.ko = true;
 
     if (d.state === 'attack') { d.move = null; d.moveId = null; }
     if (d.state === 'throw' && d.throwTarget) { d.throwTarget.state = 'idle'; d.throwTarget.stateTick = 0; d.throwTarget = null; }   // a hit breaks a throw
@@ -303,109 +340,147 @@ export class Match {
     a.stats.damage += dmg; a.stats.hits++; d.stats.taken += dmg;
     const power = clamp(mv.hitstop / 7, 0.6, 2);
     const SFX = { orb: 'orbHit', ult: 'ultBoom', rush: 'heavy', light: 'light', heavy: 'heavy', kick: 'kick' };
-    const sfxName = mv.style ? 'orbHit' : (SFX[mv.sfx] || 'light');
+    const sfxName = mv.style ? 'orbHit' : (mv.weapon ? 'heavy' : (SFX[mv.sfx] || 'light'));
     this.afterHit(a, d, dmg, n, cx, cy, power, sfxName, mv.hitstop, mv.shake);
     if (counter) this.fx.text(d.x, d.y - 250, 'COUNTER', '#ffd84a', 26);
+    if (ko && this.teamMode) this.fx.text(d.x, d.y - 270, 'K.O.', '#ff4a4a', 36);
     return 'hit';
   }
 
   checkHits() {
     const pend = this.pending; pend.length = 0;
-    for (let i = 0; i < 2; i++) {
-      const a = this.f[i], d = this.f[1 - i];
-      if (a.state !== 'attack' || a.phase !== 'active' || !a.move.hitbox) continue;
+    const fired = this.fired; fired.length = 0;
+    for (const a of this.f) {
+      if (a.ko || a.state !== 'attack' || a.phase !== 'active' || !a.move.hitbox) continue;
       const mv = a.move;
       if (mv.multi) {
         const k = a.moveTick - mv.startup - 1;
         if (k % mv.multi.interval !== 0 || a.multiCount >= mv.multi.hits) continue;
-      } else if (a.hitDone) continue;
+        fired.push(a);
+      }
       a.hitRect(this.rA);
-      d.hurtRect(this.rB);
-      if (this.rA.x0 < this.rB.x1 && this.rA.x1 > this.rB.x0 && this.rA.y0 < this.rB.y1 && this.rA.y1 > this.rB.y0) {
-        pend.push({ a, d, mv, ra: { ...this.rA }, rb: { ...this.rB } });
-      } else if (mv.multi) {
-        a.multiCount++;
+      for (const d of this.f) {
+        if (d.team === a.team) continue;
+        if (!mv.multi && (a.hitMask & (1 << d.index))) continue;
+        d.hurtRect(this.rB);
+        if (hit(this.rA, this.rB)) pend.push({ a, d, mv, ra: { ...this.rA }, rb: { ...this.rB }, final: mv.multi ? a.multiCount === mv.multi.hits - 1 : false });
       }
     }
     for (const h of pend) {
-      const final = h.mv.multi ? h.a.multiCount === h.mv.multi.hits - 1 : false;
-      const r = this.resolveHit(h.a, h.d, h.mv, h.ra, h.rb, h.a.facing, final);
-      if (r) { h.a.moveConnected = true; if (h.mv.multi) h.a.multiCount++; else h.a.hitDone = true; }
+      const r = this.resolveHit(h.a, h.d, h.mv, h.ra, h.rb, h.a.facing, h.final);
+      if (r) { h.a.moveConnected = true; if (!h.mv.multi) h.a.hitMask |= 1 << h.d.index; }
     }
+    for (const a of fired) a.multiCount++;
     // projectiles
     for (const p of this.projectiles) {
       if (!p.active) continue;
-      const owner = p.owner, d = this.f[1 - owner.index];
+      const owner = p.owner;
       p.getRect();
       for (const q of this.projectiles) {
-        if (q === p || !q.active || q.owner === owner) continue;
+        if (q === p || !q.active || q.owner.team === owner.team) continue;
         q.getRect();
-        if (p.rect.x0 < q.rect.x1 && p.rect.x1 > q.rect.x0 && p.rect.y0 < q.rect.y1 && p.rect.y1 > q.rect.y0) {
+        if (hit(p.rect, q.rect)) {
           p.active = false; q.active = false;
           this.fx.spark((p.x + q.x) / 2, p.y, '#ffffff', 1.2, 1); audio.sfx('block');
         }
       }
       if (!p.active) continue;
-      d.hurtRect(this.rB);
-      const r = p.rect;
-      if (r.x0 < this.rB.x1 && r.x1 > this.rB.x0 && r.y0 < this.rB.y1 && r.y1 > this.rB.y0) {
-        const res = this.resolveHit(owner, d, p.def, r, this.rB, p.dir, false);
-        if (res) { p.active = false; owner.stats.hits += 0; }
+      for (const d of this.f) {
+        if (d.team === owner.team) continue;
+        d.hurtRect(this.rB);
+        if (hit(p.rect, this.rB)) {
+          const res = this.resolveHit(owner, d, p.def, p.rect, this.rB, p.dir, false);
+          if (res) { p.active = false; break; }
+        }
       }
     }
   }
 
   pushApart() {
-    const a = this.f[0], b = this.f[1];
-    const skip = (f) => f.state === 'grabbed' || f.state === 'down' || f.state === 'airhit';
-    if (skip(a) || skip(b) || a.state === 'throw' || b.state === 'throw') return;
-    if (Math.abs(a.y - b.y) > 125) return;
-    const dx = b.x - a.x, ov = PUSH_W - Math.abs(dx);
-    if (ov <= 0) return;
-    const s = dx === 0 ? (a.facing || 1) : Math.sign(dx);
-    a.x = clamp(a.x - s * ov / 2, BOUND_L, BOUND_R);
-    b.x = clamp(b.x + s * ov / 2, BOUND_L, BOUND_R);
-    // anything left over (someone is against a wall) is pushed onto the other fighter
-    const ov2 = PUSH_W - Math.abs(b.x - a.x);
-    if (ov2 > 0) {
-      if (a.x <= BOUND_L || a.x >= BOUND_R) b.x = clamp(b.x + s * ov2, BOUND_L, BOUND_R);
-      else a.x = clamp(a.x - s * ov2, BOUND_L, BOUND_R);
+    const skip = (f) => f.state === 'grabbed' || f.state === 'down' || f.state === 'airhit' || f.state === 'throw';
+    for (let i = 0; i < this.N; i++) {
+      for (let j = i + 1; j < this.N; j++) {
+        const a = this.f[i], b = this.f[j];
+        if (a.team === b.team) continue;                   // teammates can walk through each other
+        if (skip(a) || skip(b)) continue;
+        if (Math.abs(a.y - b.y) > 125) continue;
+        const dx = b.x - a.x, ov = PUSH_W - Math.abs(dx);
+        if (ov <= 0) continue;
+        const s = dx === 0 ? (a.facing || 1) : Math.sign(dx);
+        a.x = clamp(a.x - s * ov / 2, BOUND_L, BOUND_R);
+        b.x = clamp(b.x + s * ov / 2, BOUND_L, BOUND_R);
+        // anything left over (someone is against a wall) is pushed onto the other fighter
+        const ov2 = PUSH_W - Math.abs(b.x - a.x);
+        if (ov2 > 0) {
+          if (a.x <= BOUND_L || a.x >= BOUND_R) b.x = clamp(b.x + s * ov2, BOUND_L, BOUND_R);
+          else a.x = clamp(a.x - s * ov2, BOUND_L, BOUND_R);
+        }
+      }
     }
   }
 
+  /** Keep every fighter inside one screen width. */
   limitDistance() {
-    const a = this.f[0], b = this.f[1];
-    const d = b.x - a.x;
-    if (Math.abs(d) > MAX_DIST) {
-      const ex = (Math.abs(d) - MAX_DIST) / 2, s = Math.sign(d);
-      a.x += s * ex; b.x -= s * ex;
+    let lo = Infinity, hi = -Infinity;
+    for (const f of this.f) { if (f.x < lo) lo = f.x; if (f.x > hi) hi = f.x; }
+    if (hi - lo > MAX_DIST) {
+      const mid = (lo + hi) / 2, half = MAX_DIST / 2;
+      for (const f of this.f) f.x = clamp(f.x, mid - half, mid + half);
+    }
+  }
+
+  /** Nearest living opponent for every fighter (used for facing, throws and the AI). */
+  computeFoes() {
+    for (const f of this.f) {
+      let best = null, bd = Infinity, bestAny = null, bda = Infinity;
+      for (const o of this.f) {
+        if (o.team === f.team) continue;
+        const d = Math.abs(o.x - f.x);
+        if (d < bda) { bda = d; bestAny = o; }
+        if (!o.ko && o.hp > 0 && d < bd) { bd = d; best = o; }
+      }
+      this.foe[f.index] = best || bestAny;
     }
   }
 
   // ======================================================== simulation
   // ---- online lockstep -------------------------------------------------------
   sampleLocal() {
-    if (this.over || this.localBlocked) { this.input.poll(0, this.netTmp = this.netTmp || createInputState()); return 0; }
     this.netTmp = this.netTmp || createInputState();
-    return encodeInput(this.input.poll(0, this.netTmp));
+    const m = this.input.poll(0, this.netTmp);
+    return (this.over || this.localBlocked) ? 0 : encodeInput(m);
   }
 
-  /** A cheap fingerprint of the simulation, compared between the two machines once per second. */
+  /** Host only: input of a CPU slot (computed once and sent to everybody, so the AI needs no determinism). */
+  sampleBot(slot) {
+    this.botTmp = this.botTmp || createInputState();
+    clearInput(this.botTmp);
+    const f = this.f[slot], ai = this.ais[slot];
+    if (this.phase === 'fight' && !this.over && ai && !f.ko) {
+      this.computeFoes();
+      ai.update(f, this.foe[slot], this, this.botTmp);
+    }
+    return encodeInput(this.botTmp);
+  }
+
+  /** A cheap fingerprint of the simulation, compared between the machines once per second. */
   stateHash() {
     let h = 17;
     const mix = (v) => { h = (Math.imul(h, 31) + (v | 0)) | 0; };
     for (const f of this.f) {
       mix(f.x * 100); mix(f.y * 100); mix(f.vx * 100); mix(f.vy * 100); mix(f.hp); mix(f.meter * 100);
-      mix(f.stateTick); mix(f.moveTick); mix(f.state.length); mix(f.wins); mix(f.cdSpecial);
+      mix(f.stateTick); mix(f.moveTick); mix(f.state.length); mix(f.cdSpecial);
     }
+    mix(this.wins[0]); mix(this.wins[1]);
     mix(this.timeLeft * 1000); mix(this.round);
     return h;
   }
 
-  /** Returns false when the remote input for the next tick has not arrived yet (the sim waits). */
+  /** Returns false when a remote input for the next tick has not arrived yet (the sim waits). */
   netStep() {
     const n = this.net, nt = this.gtick + 1;
     n.ensureLocal(nt + n.delay, () => this.sampleLocal());
+    if (n.isHost && n.bots.length) n.ensureBots(nt + n.delay, (slot) => this.sampleBot(slot));
     if (!n.fill(nt, this.in)) { this.stallFrames++; return false; }
     this.stallFrames = 0;
     if (nt % 60 === 0) n.sendHash(nt, this.stateHash());
@@ -414,16 +489,18 @@ export class Match {
 
   pollInputs() {
     if (this.net) return;                     // online inputs were already filled in by netStep()
-    const inp = this.in;
-    this.input.poll(0, inp[0]);
-    if (this.mode === 'versus') this.input.poll(1, inp[1]);
-    else if (this.mode === 'ai') { /* filled by AI */ }
-    else if (this.training) this.dummyInput();
+    for (let i = 0; i < this.N; i++) {
+      const c = this.slots[i].ctrl;
+      if (c === 'p1') this.input.poll(0, this.in[i]);
+      else if (c === 'p2') this.input.poll(1, this.in[i]);
+      else if (c === 'dummy') this.dummyInput(i);
+      else clearInput(this.in[i]);
+    }
   }
 
-  dummyInput() {
-    const o = this.in[1], m = this.tr.dummy;
-    if (m === 'cpu') return; // AI fills it in update
+  dummyInput(i) {
+    const o = this.in[i], m = this.tr.dummy;
+    if (m === 'cpu') return; // AI fills it in
     clearInput(o);
     if (m === 'crouch') o.down = true;
     else if (m === 'block') o.block = true;
@@ -460,17 +537,18 @@ export class Match {
     this.tickCombo();
   }
 
+  /** Everybody idles / finishes their animation; inputs are ignored. */
   tickIdle() {
-    const e = this.in[0], o = this.in[1];
-    clearInput(e); clearInput(o);
-    for (let i = 0; i < 2; i++) this.f[i].update(this.in[i], this.f[1 - i], this);
+    this.computeFoes();
+    for (const o of this.in) clearInput(o);
+    for (let i = 0; i < this.N; i++) this.f[i].update(this.in[i], this.foe[i], this);
     for (const p of this.projectiles) if (p.active) p.update();
     this.pushApart();
   }
 
   tickIntro() {
     if (this.phaseTick === 1) {
-      const fin = this.round > 1 && this.f[0].wins >= this.winsNeeded - 1 && this.f[1].wins >= this.winsNeeded - 1 && !this.training;
+      const fin = this.round > 1 && this.wins[0] >= this.winsNeeded - 1 && this.wins[1] >= this.winsNeeded - 1 && !this.training;
       const txt = this.training ? 'TRAINING' : (fin ? 'FINAL ROUND' : `ROUND ${this.round}`);
       this.hud.announce(txt, 'round');
       audio.sfx('bell');
@@ -483,29 +561,35 @@ export class Match {
 
   tickFight() {
     this.pollInputs();
-    if (this.ai && (this.mode === 'ai' || this.tr.dummy === 'cpu')) this.ai.update(this.f[1], this.f[0], this, this.in[1]);
-    this.f[0].readInput(this.in[0]); this.f[1].readInput(this.in[1]);
+    this.computeFoes();
+    if (!this.net) {                           // offline CPU fighters (online CPUs are driven by the host in netStep)
+      for (let i = 0; i < this.N; i++) {
+        const ai = this.ais[i];
+        if (!ai) continue;
+        const dummyCpu = this.training && this.tr.dummy === 'cpu';
+        if (this.slots[i].ctrl === 'cpu' || dummyCpu) {
+          if (this.f[i].ko) clearInput(this.in[i]);
+          else ai.update(this.f[i], this.foe[i], this, this.in[i]);
+        }
+      }
+    }
+    for (let i = 0; i < this.N; i++) this.f[i].readInput(this.in[i]);
     if (this.hitstop > 0) { this.hitstop--; return; }
 
-    this.f[0].update(this.in[0], this.f[1], this);
-    this.f[1].update(this.in[1], this.f[0], this);
+    for (let i = 0; i < this.N; i++) this.f[i].update(this.in[i], this.foe[i], this);
     for (const p of this.projectiles) if (p.active) p.update();
     this.pushApart();
     this.limitDistance();
     this.checkHits();
-    this.dummyMaintenance();
 
-    // training upkeep
     if (this.training) this.trainingTick();
     else {
       this.timeLeft -= TICK;
       if (this.timeLeft <= 0) { this.timeLeft = 0; this.timeUp(); return; }
     }
-    const k0 = this.f[0].hp <= 0, k1 = this.f[1].hp <= 0;
-    if (k0 || k1) this.startKO(k0, k1);
+    const d0 = this.teamDown(0), d1 = this.teamDown(1);
+    if (d0 || d1) this.startKO(d0, d1);
   }
-
-  dummyMaintenance() { /* placeholder for future dummy behaviours */ }
 
   trainingTick() {
     const t = this.tr;
@@ -513,52 +597,49 @@ export class Match {
     if (!busy) t.idleTicks++; else t.idleTicks = 0;
     for (const f of this.f) {
       if (t.infiniteHp) {
-        if (f.hp < 1) f.hp = 1;
+        if (f.hp < 1) { f.hp = 1; f.ko = false; }
         if (t.idleTicks > 80 && f.hp < MAX_HP) f.hp = Math.min(MAX_HP, f.hp + 12);
       } else if (f.hp <= 0) {
-        this.resetPositions(); for (const g of this.f) g.hp = MAX_HP;
+        this.resetPositions(); for (const g of this.f) { g.hp = MAX_HP; g.ko = false; }
       }
       if (t.infiniteMeter) f.meter = 100;
     }
-    if (t.idleTicks > 150) { t.lastCombo = t.lastCombo; }
   }
 
   timeUp() {
-    const a = this.f[0].hp, b = this.f[1].hp;
+    const a = this.teamHp(0), b = this.teamHp(1);
     this.endRound(a > b ? 0 : b > a ? 1 : -1, true);
-    for (const f of this.f) if (f.state !== 'attack') { /* idle */ }
   }
 
-  startKO(k0, k1) {
+  startKO(d0, d1) {
     this.phase = 'ko'; this.phaseTick = 0; this.timeScale = 0.35;
-    this.f[0].ko = k0; this.f[1].ko = k1;
     this.hud.announce('K.O.', 'ko');
     audio.sfx('ko'); audio.voice('K O');
     this.addShake(14); this.flashA = 0.7;
-    this.winnerOnKO = k0 && k1 ? -1 : (k0 ? 1 : 0);
+    this.winnerOnKO = d0 && d1 ? -1 : (d0 ? 1 : 0);
   }
 
   tickKO() {
-    clearInput(this.in[0]); clearInput(this.in[1]);
+    this.computeFoes();
+    for (const o of this.in) clearInput(o);
     if (this.hitstop > 0) this.hitstop--;
     else {
-      this.f[0].update(this.in[0], this.f[1], this);
-      this.f[1].update(this.in[1], this.f[0], this);
+      for (let i = 0; i < this.N; i++) this.f[i].update(this.in[i], this.foe[i], this);
       for (const p of this.projectiles) if (p.active) p.update();
     }
     if (this.phaseTick === 40) this.timeScale = 1;
-    if (this.phaseTick >= 78) {
-      this.endRound(this.winnerOnKO, false);
-    }
+    if (this.phaseTick >= 78) this.endRound(this.winnerOnKO, false);
   }
 
   tickRoundEnd() {
-    clearInput(this.in[0]); clearInput(this.in[1]);
-    for (let i = 0; i < 2; i++) {
+    this.computeFoes();
+    for (const o of this.in) clearInput(o);
+    for (let i = 0; i < this.N; i++) {
       const f = this.f[i];
-      f.update(this.in[i], this.f[1 - i], this);
-      if (this.roundWinner === i && f.grounded && f.neutral) { f.state = 'win'; f.stateTick = 0; f.vx = 0; }
-      if (this.roundWinner === i && f.state === 'win' && f.t % 9 === 0) {
+      f.update(this.in[i], this.foe[i], this);
+      const winner = this.roundWinner === f.team && !f.ko;
+      if (winner && f.grounded && f.neutral) { f.state = 'win'; f.stateTick = 0; f.vx = 0; }
+      if (winner && f.state === 'win' && f.t % 9 === 0) {
         this.fx.burst(f.x + (Math.random() - 0.5) * 120, f.y - 150 - Math.random() * 110, 3, f.cfg.color, 2.5, 34, 3.5);
       }
     }
@@ -568,20 +649,22 @@ export class Match {
   }
 
   tickCombo() {
-    for (let i = 0; i < 2; i++) {
-      const c = this.comboShow[i];
+    for (let t = 0; t < 2; t++) {
+      const c = this.comboShow[t];
       if (!c) continue;
-      const d = this.f[1 - i];
+      const d = c.victim;
       if (d.neutral || d.state === 'getup' || d.state === 'down') {
-        if (++c.t > 55) { this.comboShow[i] = null; this.hud.clearCombo(i); }
+        if (++c.t > 55) { this.comboShow[t] = null; this.hud.clearCombo(t); }
       } else c.t = 0;
     }
   }
 
   updateCamera() {
-    const a = this.f[0], b = this.f[1];
     const cam = this.cam;
-    let tx = (a.x + b.x) / 2, tz = clamp(VIEW_W / (Math.abs(a.x - b.x) + 640), 1, 1.18);
+    let lo = Infinity, hi = -Infinity;
+    const alive = this.f.filter((f) => !f.ko);
+    for (const f of (alive.length ? alive : this.f)) { if (f.x < lo) lo = f.x; if (f.x > hi) hi = f.x; }
+    let tx = (lo + hi) / 2, tz = clamp(VIEW_W / (hi - lo + 640), 1, 1.18);
     if (this.cine) { tx = this.cine.owner.x + this.cine.owner.facing * 80; tz = 1.42; }
     cam.z += (tz - cam.z) * (this.cine ? 0.18 : 0.07);
     cam.cx += (tx - cam.cx) * (this.cine ? 0.2 : 0.12);
@@ -630,10 +713,10 @@ export class Match {
 
   drawWorld(ctx) {
     const f = this.f;
-    for (let i = 0; i < 2; i++) drawShadow(ctx, f[i]);
+    for (const fi of f) drawShadow(ctx, fi);
     drawGhosts(ctx, this.fx, (fi) => this.sprites[fi.index]);
-    // the fighter that is attacking is drawn on top
-    const order = (f[0].state === 'attack' || f[0].state === 'throw') && !(f[1].state === 'attack') ? [1, 0] : [0, 1];
+    // attacking fighters are drawn on top of the others
+    const order = f.map((_, i) => i).sort((a, b) => ((f[a].state === 'attack' || f[a].state === 'throw') ? 1 : 0) - ((f[b].state === 'attack' || f[b].state === 'throw') ? 1 : 0));
     for (const i of order) {
       const fi = f[i];
       const pose = computePose(fi, this.poses[i]);
@@ -644,14 +727,7 @@ export class Match {
     for (const p of this.projectiles) if (p.active) p.draw(ctx, this.time);
     this.fx.draw(ctx);
     if (this.phase === 'fight' || this.phase === 'intro') {
-      if (this.net) {
-        const me = this.net.role;
-        drawTag(ctx, f[0], me === 0 ? 'YOU' : 'FRIEND', '#4aa8ff');
-        drawTag(ctx, f[1], me === 1 ? 'YOU' : 'FRIEND', '#ff5a5a');
-      } else {
-        drawTag(ctx, f[0], 'P1', '#4aa8ff');
-        drawTag(ctx, f[1], this.mode === 'ai' ? 'CPU' : (this.training ? 'DUMMY' : 'P2'), '#ff5a5a');
-      }
+      for (const fi of f) if (!fi.ko) drawTag(ctx, fi, this.tagFor(fi.index), TEAM_COLORS[fi.team]);
     }
   }
 

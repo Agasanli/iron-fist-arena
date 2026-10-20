@@ -3,6 +3,8 @@ import { ARENAS, ACTIONS, ACTION_LABELS, DIFFICULTIES, LAPTOP_P2, DEFAULT_BINDIN
 import { CHARACTERS, CHARACTER_IDS } from '../entities/characters.js';
 import { getPortrait } from '../game/Sprites.js';
 import { audio } from '../audio/AudioEngine.js';
+import { WEAPONS, WEAPON_IDS } from '../entities/weapons.js';
+import { buildOffline, teamSlots } from '../game/matchSetup.js';
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const FOCUSABLE = 'button:not([disabled]), input:not([disabled]), select:not([disabled])';
@@ -137,6 +139,7 @@ export class UI {
         <nav class="menu-list">
           <button class="btn primary" data-act="play" data-autofocus>PLAY <small>Quick fight vs AI</small></button>
           <button class="btn" data-act="mode" data-mode="versus">LOCAL MULTIPLAYER</button>
+          <button class="btn" data-act="goto" data-to="team">TEAM BATTLE <small>2 vs 2 on one stage</small></button>
           <button class="btn" data-act="goto" data-to="online">ONLINE <small>Play a friend with a room code</small></button>
           <button class="btn" data-act="mode" data-mode="ai">FIGHT AGAINST AI</button>
           <button class="btn" data-act="mode" data-mode="pick">CHARACTER SELECTION</button>
@@ -151,14 +154,36 @@ export class UI {
 
   do_play() {
     this.hide();
-    this.game.startMatch({
-      mode: 'ai', p1: settings.p1Char, p2: settings.p2Char, arena: settings.arena, difficulty: settings.difficulty,
-    });
+    this.game.startMatch(buildOffline('ai'));
   }
   do_mode(t) { this.show('select', { mode: t.dataset.mode }); }
   do_goto(t) { this.show(t.dataset.to); }
 
   // ------------------------------------------------------------ SELECT
+  weaponChips(p, allowRandom) {
+    const cur = settings[p ? 'p2Weapon' : 'p1Weapon'];
+    const ids = allowRandom ? [...WEAPON_IDS, 'random'] : WEAPON_IDS;
+    const chips = ids.map((id) => {
+      const w = WEAPONS[id];
+      return `<button class="btn chip wchip ${cur === id ? 'sel' : ''}" data-act="pickweapon" data-p="${p}" data-id="${id}">${w ? w.name : 'RANDOM'}</button>`;
+    }).join('');
+    return `<div class="wrow" data-wp="${p}"><span class="wlabel">WEAPON</span>${chips}<div class="wdesc" data-wdesc="${p}"></div></div>`;
+  }
+
+  refreshWeapons() {
+    this.root.querySelectorAll('.wrow').forEach((row) => {
+      const p = +row.dataset.wp, cur = settings[p ? 'p2Weapon' : 'p1Weapon'];
+      row.querySelectorAll('.wchip').forEach((b) => b.classList.toggle('sel', b.dataset.id === cur));
+      const d = row.querySelector('.wdesc');
+      if (d) d.textContent = cur === 'random' ? 'A random weapon is picked for every match.' : (WEAPONS[cur] || WEAPONS.fists).desc;
+    });
+  }
+
+  do_pickweapon(t) {
+    setSetting(+t.dataset.p ? 'p2Weapon' : 'p1Weapon', t.dataset.id);
+    this.refreshWeapons();
+  }
+
   screen_select({ mode }) {
     const p2Label = mode === 'ai' ? 'CPU' : (mode === 'training' ? 'DUMMY' : 'PLAYER 2');
     const tiles = (p) => CHARACTER_IDS.map((id) => {
@@ -175,9 +200,9 @@ export class UI {
         <h2>${MODE_TITLES[mode]}</h2>
         ${touchNote}
         <div class="sel-grid">
-          <div class="sel-col"><h3>PLAYER 1</h3><div class="tiles">${tiles(0)}</div><div class="cdetail" data-info="0"></div></div>
+          <div class="sel-col"><h3>PLAYER 1</h3><div class="tiles">${tiles(0)}</div>${this.weaponChips(0, true)}<div class="cdetail" data-info="0"></div></div>
           <div class="vs">VS</div>
-          <div class="sel-col"><h3>${p2Label}</h3><div class="tiles">${tiles(1)}</div><div class="cdetail" data-info="1"></div></div>
+          <div class="sel-col"><h3>${p2Label}</h3><div class="tiles">${tiles(1)}</div>${this.weaponChips(1, true)}<div class="cdetail" data-info="1"></div></div>
         </div>
         <div class="row"><span class="lbl">ARENA</span>${arenas}</div>
         ${mode === 'ai' ? `<div class="row"><span class="lbl">DIFFICULTY</span>${diffs}</div>` : ''}
@@ -211,7 +236,98 @@ export class UI {
         <p>${esc(c.blurb)}</p>
         <ul><li><b>Light</b> ${m.light.name}</li><li><b>Heavy</b> ${m.heavy.name}</li><li><b>Special</b> ${m.special.name}</li><li><b>Ultimate</b> ${m.ultimate.name}</li></ul>`;
     });
+    this.refreshWeapons();
     this.game.backdrop.set(settings.p1Char, settings.p2Char, settings.arena);
+  }
+
+  do_pickchar(t) {
+    setSetting(+t.dataset.p ? 'p2Char' : 'p1Char', t.dataset.id);
+    this.refreshSelect();
+  }
+  do_pickarena(t) {
+    setSetting('arena', t.dataset.id);
+    this.root.querySelectorAll('[data-act="pickarena"]').forEach((b) => b.classList.toggle('sel', b.dataset.id === settings.arena));
+    if (this.current && this.current.name !== 'team') this.refreshSelect();
+  }
+  do_pickdiff(t) {
+    setSetting('difficulty', t.dataset.id);
+    this.root.querySelectorAll('[data-act="pickdiff"]').forEach((b) => b.classList.toggle('sel', b.dataset.id === settings.difficulty));
+  }
+  do_fight(t) {
+    const mode = t.dataset.mode;
+    this.hide();
+    this.game.startMatch(buildOffline(mode));
+  }
+  do_back() { this.back(); }
+
+  // ------------------------------------------------------------ TEAM BATTLE (offline 2v2)
+  screen_team() {
+    const arenas = ARENAS.map((a) => `<button class="btn chip ${settings.arena === a.id ? 'sel' : ''}" data-act="pickarena" data-id="${a.id}">${a.name}</button>`).join('');
+    const diffs = DIFFICULTIES.map((d) => `<button class="btn chip ${settings.difficulty === d ? 'sel' : ''}" data-act="pickdiff" data-id="${d}">${d.toUpperCase()}</button>`).join('');
+    const names = ['BLUE 1', 'BLUE 2', 'RED 1', 'RED 2'];
+    const card = (i) => `
+      <div class="tslot t${i < 2 ? 0 : 1}" data-slot="${i}">
+        <div class="tslot-head">${names[i]}</div>
+        <img class="tslot-img" alt="">
+        <div class="tslot-name"></div>
+        <div class="cyc"><button class="btn chip" data-act="cyc" data-slot="${i}" data-what="char" data-d="-1">◀</button><span class="cycv" data-v="char"></span><button class="btn chip" data-act="cyc" data-slot="${i}" data-what="char" data-d="1">▶</button></div>
+        <div class="cyc"><button class="btn chip" data-act="cyc" data-slot="${i}" data-what="weapon" data-d="-1">◀</button><span class="cycv" data-v="weapon"></span><button class="btn chip" data-act="cyc" data-slot="${i}" data-what="weapon" data-d="1">▶</button></div>
+        <div class="cyc"><button class="btn chip" data-act="cyc" data-slot="${i}" data-what="ctrl" data-d="-1">◀</button><span class="cycv" data-v="ctrl"></span><button class="btn chip" data-act="cyc" data-slot="${i}" data-what="ctrl" data-d="1">▶</button></div>
+      </div>`;
+    return `
+      <div class="panel team-panel">
+        <h2>TEAM BATTLE · 2 vs 2</h2>
+        <p class="note">Four fighters on one stage. A team wins the round when both opponents are knocked out. Give each fighter a controller: <b>P1 KEYS</b>, <b>P2 KEYS</b> (second player on the same keyboard) or <b>CPU</b>.</p>
+        <div class="team-grid">
+          <div class="team-col"><h3 class="blue">TEAM BLUE</h3><div class="team-row">${card(0)}${card(1)}</div></div>
+          <div class="vs">VS</div>
+          <div class="team-col"><h3 class="red">TEAM RED</h3><div class="team-row">${card(2)}${card(3)}</div></div>
+        </div>
+        <div class="row"><span class="lbl">ARENA</span>${arenas}</div>
+        <div class="row"><span class="lbl">CPU LEVEL</span>${diffs}</div>
+        <div class="actions"><button class="btn primary" data-act="fightteam">FIGHT!</button><button class="btn" data-act="back">BACK</button></div>
+      </div>`;
+  }
+
+  after_team() { this.refreshTeam(); }
+
+  refreshTeam() {
+    const slots = teamSlots();
+    settings.team = slots; saveSettings();
+    const label = { p1: 'P1 KEYS', p2: 'P2 KEYS', cpu: 'CPU' };
+    slots.forEach((s, i) => {
+      const el = this.root.querySelector(`.tslot[data-slot="${i}"]`);
+      if (!el) return;
+      const c = CHARACTERS[s.char];
+      el.style.setProperty('--c1', c.color);
+      el.querySelector('.tslot-img').src = getPortrait(s.char);
+      el.querySelector('.tslot-name').textContent = c.name;
+      el.querySelector('[data-v="char"]').textContent = c.name;
+      el.querySelector('[data-v="weapon"]').textContent = s.weapon === 'random' ? 'RANDOM' : WEAPONS[s.weapon].name;
+      el.querySelector('[data-v="ctrl"]').textContent = label[s.ctrl];
+      el.classList.toggle('human', s.ctrl !== 'cpu');
+    });
+  }
+
+  do_cyc(t) {
+    const i = +t.dataset.slot, d = +t.dataset.d, what = t.dataset.what;
+    const slots = teamSlots();
+    const s = slots[i];
+    const cycle = (list, cur) => list[(list.indexOf(cur) + d + list.length) % list.length];
+    if (what === 'char') s.char = cycle(CHARACTER_IDS, s.char);
+    else if (what === 'weapon') s.weapon = cycle([...WEAPON_IDS, 'random'], s.weapon);
+    else {
+      s.ctrl = cycle(['cpu', 'p1', 'p2'], s.ctrl);
+      // a keyboard can only be used once: the previous owner becomes a CPU
+      if (s.ctrl !== 'cpu') slots.forEach((o, j) => { if (j !== i && o.ctrl === s.ctrl) o.ctrl = 'cpu'; });
+    }
+    settings.team = slots; saveSettings();
+    this.refreshTeam();
+  }
+
+  do_fightteam() {
+    this.hide();
+    this.game.startMatch(buildOffline('team'));
   }
 
   // ------------------------------------------------------------ ONLINE
@@ -222,14 +338,17 @@ export class UI {
         <img src="${getPortrait(id)}" alt=""><span>${c.name}</span></button>`;
     }).join('');
     const arenas = ARENAS.map((a) => `<button class="btn chip ${settings.arena === a.id ? 'sel' : ''}" data-act="pickarena" data-id="${a.id}">${a.name}</button>`).join('');
+    const sizes = [[2, '1 vs 1'], [4, '2 vs 2 TEAMS']].map(([v, l]) => `<button class="btn chip ${settings.onlineSize === v ? 'sel' : ''}" data-act="onlinesize" data-v="${v}">${l}</button>`).join('');
+    const teams = [[0, 'BLUE'], [1, 'RED']].map(([v, l]) => `<button class="btn chip ${settings.onlineTeam === v ? 'sel' : ''}" data-act="onlineteam" data-v="${v}">${l}</button>`).join('');
     return `
       <div class="panel online-panel">
-        <h2>ONLINE · PLAY A FRIEND</h2>
-        <p class="note">One player creates a room and sends the code (or the invite link) to the other. Both players need this page open. The match runs directly between your two browsers.</p>
+        <h2>ONLINE · PLAY WITH FRIENDS</h2>
+        <p class="note">One player creates a room and shares the code (or the invite link). Friends join with it. The match runs directly between your browsers. In 2 vs 2 you can play with up to 4 people, empty places are filled by CPU fighters.</p>
         <h3>YOUR FIGHTER</h3>
         <div class="tiles">${tiles}</div>
-        <div class="row"><span class="lbl">ARENA</span>${arenas}</div>
-        <div class="note">The room creator decides the arena and match settings.</div>
+        ${this.weaponChips(0, false)}
+        <div class="row"><span class="lbl">ROOM</span>${sizes}<span class="lbl" style="width:auto;margin-left:10px">YOUR TEAM</span>${teams}</div>
+        <div class="row"><span class="lbl">ARENA</span>${arenas}<span class="note">(room creator's choice)</span></div>
         <div class="row online-actions">
           <button class="btn primary" data-act="create" data-autofocus>CREATE ROOM</button>
           <span class="or">or</span>
@@ -246,10 +365,23 @@ export class UI {
   }
   setNetMsg(txt) { const n = this.root.querySelector('#netmsg'); if (n) n.textContent = txt; }
 
+  do_onlinesize(t) {
+    setSetting('onlineSize', +t.dataset.v);
+    this.root.querySelectorAll('[data-act="onlinesize"]').forEach((b) => b.classList.toggle('sel', +b.dataset.v === settings.onlineSize));
+  }
+  do_onlineteam(t) {
+    setSetting('onlineTeam', +t.dataset.v);
+    this.root.querySelectorAll('[data-act="onlineteam"]').forEach((b) => b.classList.toggle('sel', +b.dataset.v === settings.onlineTeam));
+  }
+
+  myOnlineInfo() {
+    return { char: settings.p1Char, weapon: settings.p1Weapon === 'random' ? 'fists' : settings.p1Weapon, team: settings.onlineTeam };
+  }
+
   do_create() {
     const s = this.game.newSession();
     this.setNetMsg('Creating room…');
-    s.host().then((code) => {
+    s.host(settings.onlineSize, this.myOnlineInfo()).then((code) => {
       if (this.current && this.current.name === 'online') this.replace('lobby', { code });
     }).catch((e) => { this.game.closeSession(); this.setNetMsg(this.game.netErrorText(e)); });
   }
@@ -260,32 +392,55 @@ export class UI {
     if (code.length < 4) { this.setNetMsg('Enter the room code first.'); return; }
     const s = this.game.newSession();
     this.setNetMsg('Connecting to ' + code + '…');
-    s.join(code).then(() => this.setNetMsg('Connected! Waiting for the host to start…'))
-      .catch((e) => { this.game.closeSession(); this.setNetMsg(this.game.netErrorText(e)); });
+    s.join(code, this.myOnlineInfo()).then(() => {
+      if (this.current && this.current.name === 'online') this.replace('lobby', { code, guest: true });
+    }).catch((e) => { this.game.closeSession(); this.setNetMsg(this.game.netErrorText(e)); });
   }
 
-  screen_lobby({ code }) {
+  screen_lobby({ code, guest }) {
+    const s = this.game.session;
     const link = location.origin + location.pathname + '?room=' + code;
+    const size = guest ? ((s && s.guestRoster && s.guestRoster.size) || 2) : s.size;
+    const players = guest ? ((s && s.guestRoster && s.guestRoster.players) || []) : s.roster();
+    const you = guest ? ((s && s.guestRoster && s.guestRoster.you) ?? -1) : s.role;
+    const by = {}; players.forEach((p) => { by[p.slot] = p; });
+    const card = (i) => {
+      const p = by[i];
+      if (!p) return `<div class="lslot empty"><div class="lname">${size === 4 ? 'CPU (auto-fill)' : 'waiting…'}</div></div>`;
+      const c = CHARACTERS[p.char] || CHARACTERS.papakha, w = WEAPONS[p.weapon] || WEAPONS.fists;
+      const who = p.slot === you ? 'YOU' : (p.host ? 'HOST' : 'PLAYER');
+      return `<div class="lslot" style="--c1:${c.color}"><img src="${getPortrait(c.id)}" alt=""><div><div class="lname">${c.name}</div><div class="lsub">${w.name} · ${who}</div></div></div>`;
+    };
+    const teamsHtml = size === 4
+      ? `<div class="lteams"><div><h3 class="blue">TEAM BLUE</h3>${card(0)}${card(1)}</div><div class="vs">VS</div><div><h3 class="red">TEAM RED</h3>${card(2)}${card(3)}</div></div>`
+      : `<div class="lteams"><div><h3 class="blue">PLAYER 1</h3>${card(0)}</div><div class="vs">VS</div><div><h3 class="red">PLAYER 2</h3>${card(1)}</div></div>`;
+    const humans = players.length;
+    const canStart = !guest && size === 4 && humans >= 2;
     return `
       <div class="panel lobby-panel">
-        <h2>ROOM READY</h2>
-        <p class="note">Tell your friend to choose <b>ONLINE → JOIN ROOM</b> and type this code:</p>
+        <h2>${guest ? 'IN THE ROOM' : 'ROOM READY'}</h2>
         <div class="bigcode">${code}</div>
-        <p class="note">or send them this link (it fills in the code for them):</p>
-        <input class="linkbox" readonly value="${esc(link)}" id="invitelink">
+        ${guest ? '' : `<input class="linkbox" readonly value="${esc(link)}" id="invitelink"><p class="note">Share the code or this link. Friends choose <b>ONLINE → JOIN ROOM</b>.</p>`}
+        ${teamsHtml}
         <div class="actions">
-          <button class="btn primary" data-act="copylink" data-autofocus>COPY LINK</button>
-          <button class="btn" data-act="cancelroom">CANCEL</button>
+          ${guest ? '' : (size === 4 ? `<button class="btn primary" data-act="startroom" ${canStart ? '' : 'disabled'} data-autofocus>START MATCH</button>` : '')}
+          ${guest ? '' : '<button class="btn" data-act="copylink">COPY LINK</button>'}
+          <button class="btn" data-act="cancelroom">${guest ? 'LEAVE' : 'CANCEL'}</button>
         </div>
-        <div id="netmsg" class="note netmsg">Waiting for your friend…</div>
+        <div id="netmsg" class="note netmsg">${guest ? 'Waiting for the host to start the match…' : (size === 4 ? (canStart ? 'Press START MATCH when everybody is in. Empty places are filled by CPU fighters.' : 'Waiting for at least one friend…') : 'Waiting for your friend…')}</div>
       </div>`;
   }
   do_copylink() {
-    const v = this.root.querySelector('#invitelink').value;
-    const done = () => this.setNetMsg('Link copied! Waiting for your friend…');
+    const el = this.root.querySelector('#invitelink');
+    if (!el) return;
+    const v = el.value;
+    const done = () => this.setNetMsg('Link copied!');
     try { navigator.clipboard.writeText(v).then(done, () => this.setNetMsg('Copy failed, select the link manually.')); } catch (e) { this.setNetMsg('Copy failed, select the link manually.'); }
   }
+  do_startroom() { this.game.hostStart(); }
   do_cancelroom() { this.game.closeSession(); this.back(); }
+
+  refreshLobby() { if (this.current && this.current.name === 'lobby') this.render(); }
 
   screen_netmenu() {
     return `
@@ -298,36 +453,14 @@ export class UI {
         </nav>
       </div>`;
   }
-  screen_netlost() {
+  screen_netlost({ reason } = {}) {
     return `
       <div class="panel pause-panel">
         <h2>DISCONNECTED</h2>
-        <p class="note">Your friend left the match or the connection was lost.</p>
+        <p class="note">${esc(reason || 'A player left the match or the connection was lost.')}</p>
         <nav class="menu-list"><button class="btn primary" data-act="quit" data-autofocus>MAIN MENU</button></nav>
       </div>`;
   }
-
-  do_pickchar(t) {
-    setSetting(+t.dataset.p ? 'p2Char' : 'p1Char', t.dataset.id);
-    this.refreshSelect();
-  }
-  do_pickarena(t) {
-    setSetting('arena', t.dataset.id);
-    this.root.querySelectorAll('[data-act="pickarena"]').forEach((b) => b.classList.toggle('sel', b.dataset.id === settings.arena));
-    this.refreshSelect();
-  }
-  do_pickdiff(t) {
-    setSetting('difficulty', t.dataset.id);
-    this.root.querySelectorAll('[data-act="pickdiff"]').forEach((b) => b.classList.toggle('sel', b.dataset.id === settings.difficulty));
-  }
-  do_fight(t) {
-    const mode = t.dataset.mode;
-    this.hide();
-    this.game.startMatch({
-      mode, p1: settings.p1Char, p2: settings.p2Char, arena: settings.arena, difficulty: settings.difficulty,
-    });
-  }
-  do_back() { this.back(); }
 
   // ------------------------------------------------------------ SETTINGS
   screen_settings() {
@@ -435,6 +568,9 @@ export class UI {
               <li><b>Special:</b> unique per character, limited by a cooldown.</li>
               <li><b>Ultimate:</b> fill the SUPER meter (damage dealt and taken) and press the Ultimate key.</li>
               <li>Long combos lose damage and end in a knockdown, so they cannot go on forever.</li>
+              <li><b>Weapons:</b> pick one before the fight (katana, bat, hammer, nunchaku, spear, knuckles). It changes reach, damage and speed of your <i>punch</i> attacks; kicks, specials and ultimates stay the same.</li>
+              <li><b>Team Battle (2 vs 2):</b> four fighters share the stage. A team wins the round when both enemies are knocked out. Teammates can walk through each other.</li>
+              <li><b>Online:</b> create a room and share the code. In 2 vs 2 rooms up to 4 friends can play, empty places are filled by CPU fighters.</li>
             </ul>
           </section>
         </div>
@@ -480,29 +616,38 @@ export class UI {
 
   // ------------------------------------------------------------ MATCH END
   screen_matchend({ result, mode }) {
-    const w = result.winner;
-    const name = (i) => (i === 0 ? 'PLAYER 1' : (mode === 'ai' ? 'CPU' : 'PLAYER 2'));
-    const role = this.game.session ? this.game.session.role : 0;
-    const title = mode === 'online' ? (w === role ? 'VICTORY' : 'DEFEAT')
-      : (mode === 'ai' ? (w === 0 ? 'VICTORY' : 'DEFEAT') : `${name(w)} WINS`);
-    const [a, b] = result.stats;
     const cm = this.game.match;
-    const names = [cm.f[0].cfg.name, cm.f[1].cfg.name];
-    const row = (l, x, y) => `<tr><td>${x}</td><th>${l}</th><td>${y}</td></tr>`;
+    const w = result.winner;                                  // winning TEAM (0 / 1)
+    const role = this.game.session ? this.game.session.role : 0;
+    const myTeam = cm.teamOf(role);
+    const teamMode = cm.teamMode;
+    let title;
+    if (mode === 'online') title = w === myTeam ? 'VICTORY' : 'DEFEAT';
+    else if (mode === 'ai') title = w === 0 ? 'VICTORY' : 'DEFEAT';
+    else title = `${cm.teamName(w)} WINS`;
+    const good = mode === 'online' ? w === myTeam : (mode === 'ai' ? w === 0 : true);
+    const stats = result.stats;
+    let table;
+    if (!teamMode) {
+      const [a, b] = stats;
+      const row = (l, x, y) => `<tr><td>${x}</td><th>${l}</th><td>${y}</td></tr>`;
+      table = `<table class="stats">
+          <thead><tr><td>${cm.f[0].cfg.name}</td><th></th><td>${cm.f[1].cfg.name}</td></tr></thead>
+          ${row('Damage dealt', a.damage, b.damage)}${row('Hits landed', a.hits, b.hits)}${row('Best combo', a.maxCombo, b.maxCombo)}
+          ${row('Blocks', a.blocks, b.blocks)}${row('Specials', a.specials, b.specials)}${row('Ultimates', a.ultimates, b.ultimates)}${row('Throws', a.throws, b.throws)}
+        </table>`;
+    } else {
+      const rows = cm.f.map((f, i) => {
+        const st = stats[i];
+        return `<tr class="tm${f.team}"><td class="who">${f.cfg.name} <small>${cm.tagFor(i)}</small></td><td>${st.damage}</td><td>${st.hits}</td><td>${st.maxCombo}</td><td>${st.ultimates}</td></tr>`;
+      }).join('');
+      table = `<table class="stats team"><thead><tr><th>FIGHTER</th><th>DAMAGE</th><th>HITS</th><th>COMBO</th><th>ULTS</th></tr></thead>${rows}</table>`;
+    }
     return `
-      <div class="panel end-panel ${(mode === 'online' ? w === role : (w === 0 || mode !== 'ai')) ? 'win' : 'lose'}">
+      <div class="panel end-panel ${good ? 'win' : 'lose'}">
         <h1>${title}</h1>
-        <div class="sub">${names[w]} takes the match ${cm.f[w].wins} – ${cm.f[1 - w].wins}</div>
-        <table class="stats">
-          <thead><tr><td>${names[0]}</td><th></th><td>${names[1]}</td></tr></thead>
-          ${row('Damage dealt', a.damage, b.damage)}
-          ${row('Hits landed', a.hits, b.hits)}
-          ${row('Best combo', a.maxCombo, b.maxCombo)}
-          ${row('Blocks', a.blocks, b.blocks)}
-          ${row('Specials', a.specials, b.specials)}
-          ${row('Ultimates', a.ultimates, b.ultimates)}
-          ${row('Throws', a.throws, b.throws)}
-        </table>
+        <div class="sub">${cm.teamName(w)} takes the match ${result.wins[w]} – ${result.wins[1 - w]}</div>
+        ${table}
         <div class="actions">
           <button class="btn primary" data-act="rematch" data-autofocus>REMATCH</button>
           ${mode === 'online' ? '' : '<button class="btn" data-act="reselect">CHARACTER SELECT</button>'}
@@ -514,7 +659,11 @@ export class UI {
     this.game.rematch();
     if (this.game.session && this.game.match && this.game.match.net && t) { t.textContent = 'WAITING FOR FRIEND…'; t.disabled = true; }
   }
-  do_reselect() { const mode = this.game.match.mode; this.game.quitToMenu(false); this.show('select', { mode }); }
+  do_reselect() {
+    const mode = this.game.match.mode;
+    this.game.quitToMenu(false);
+    if (mode === 'team') this.show('team'); else this.show('select', { mode });
+  }
 }
 
 export { DEFAULT_BINDINGS };

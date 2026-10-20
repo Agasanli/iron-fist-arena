@@ -48,6 +48,11 @@ export const DEFAULT_SETTINGS = {
   touchControls: 'auto',   // auto | on | off
   p1Char: 'papakha',
   p2Char: 'delegate',
+  p1Weapon: 'fists',
+  p2Weapon: 'fists',
+  team: null,
+  onlineSize: 2,           // online room: 2 (1v1) or 4 (2v2)
+  onlineTeam: 0,           // preferred team in 2v2 rooms
   arena: 'neon',
   bindings: null,
 };

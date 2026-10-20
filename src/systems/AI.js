@@ -41,7 +41,7 @@ export class AI {
     r.dist = Math.abs(opp.x - me.x);
     r.proj = 999;
     for (const pr of m.projectiles) {
-      if (!pr.active || pr.owner === me) continue;
+      if (!pr.active || pr.owner.team === me.team) continue;
       const d = (me.x - pr.x) * pr.dir;
       if (d > 0 && d < r.proj) r.proj = d;
     }
@@ -66,7 +66,7 @@ export class AI {
 
     // --- reactions (based on delayed observation only)
     if (me.neutral && this.state !== 'defend') {
-      const sp = me.cfg.moves.special;
+      const sp = me.moves.special;
       if (sp.counter && o.atk && !this.prevAtk && o.dist < o.reach + 90 && me.cdSpecial <= 0 && R() < 0.2 + 0.5 * p.skill) {
         out.pSpecial = out.special = true;          // Executive Stance: wait for the hit
         this.start('idle', 26);
@@ -89,7 +89,7 @@ export class AI {
   }
 
   decide(me, opp, m, dist, o, toward) {
-    const p = this.p, R = Math.random, mv = me.cfg.moves;
+    const p = this.p, R = Math.random, mv = me.moves;
     const reachL = reach(mv.light), reachH = reach(mv.heavy);
     const think = p.think + (R() * p.think * 0.5 | 0);
     if (!me.neutral && me.state !== 'jump') { this.start('idle', 5); return; }

@@ -1,4 +1,5 @@
 import { GROUND } from '../game/config.js';
+import { drawWeapon, WEAPONS } from './weapons.js';
 
 // Procedural animation: the supplied artwork is a single static image per character, so the
 // torso sprite is posed (lean / squash / bob) while legs and attacking limbs are drawn
@@ -8,7 +9,7 @@ export function createPose() {
   return {
     x: 0, y: 0, facing: 1, lean: 0, bodyRot: 0, sx: 1, sy: 1, hipH: 70, bob: 0, ox: 0, drop: 0,
     ffx: 18, ffy: 0, bfx: -16, bfy: 0, limb: 0, ltx: 0, lty: 0, guard: 0, pump: 0, grab: 0,
-    flash: 0, hurt: 0, aura: 0, ext: 0,
+    flash: 0, hurt: 0, aura: 0, ext: 0, weapon: 'fists', wield: 0, wlen: 0, t: 0,
   };
 }
 
@@ -31,6 +32,7 @@ export function computePose(f, o) {
   o.flash = f.flash > 0 ? f.flash / 6 : 0;
   o.hurt = (f.state === 'hit' || f.state === 'airhit') ? 0.16 : 0;
   o.aura = 0; o.ext = 0;
+  o.weapon = f.weapon || 'fists'; o.wield = 0; o.wlen = 0; o.t = f.t;
 
   switch (f.state) {
     case 'idle': {
@@ -115,7 +117,11 @@ export function computePose(f, o) {
       if (hb) {
         if (mv.upward) { tx = (hb.x + hb.w * 0.55) * ext; ty = -(hb.y - 36) * Math.max(ext, 0) - (1 - Math.max(ext, 0)) * 70; if (ext < 0) { tx = ext * 40; ty = -70; } }
         else if (mv.quake) { tx = (hb.w * 0.1 + 40) * ext; ty = -(hb.y - hb.h - 5 + (ext < 0 ? -70 * -ext * 3 : 0)); if (ext < 0) { tx = 10; ty = -(L + 120 + 60 * -ext); } else { ty = -14; } }
-        else { tx = (hb.x + hb.w - 8) * ext; ty = -(hb.y - hb.h / 2); }
+        else {
+          // with a weapon the hand stops short so the weapon tip reaches the end of the hitbox
+          tx = (mv.weapon ? Math.max(58, hb.x + hb.w - 8 - mv.wlen * 0.85) : hb.x + hb.w - 8) * ext;
+          ty = -(hb.y - hb.h / 2);
+        }
       } else { tx = 78 * ext; ty = -(f.cfg.body.hurtH * 0.6); }
       tx = Math.min(tx, mv.limb === 'leg' ? 150 : 128);     // very long hitboxes (beams) must not stretch the limb
       if (mv.limb === 'leg') {
@@ -123,6 +129,7 @@ export function computePose(f, o) {
         if (!mv.air) { o.bfx = -18; o.bfy = 0; o.lean = -0.1 * Math.max(ext, 0) + (ext < 0 ? ext * 0.3 : 0); }
       } else {
         o.limb = 1; o.ltx = tx; o.lty = ty;
+        if (mv.weapon) { o.wield = 1; o.wlen = mv.wlen; }
       }
       if (mv.multi && !mv.beam && f.phase === 'active') { o.ltx += Math.sin(f.moveTick * 2.1) * 10; o.lty += Math.sin(f.moveTick * 3.3) * 22; }
       if (mv.counter && f.moveTick <= mv.counter.to + 2) { o.limb = 0; o.guard = 1; o.aura = 0.5; o.lean = -0.04; o.ffx = 30; o.bfx = -26; }
@@ -151,6 +158,7 @@ function ik(hx, hy, fx, fy, a, b, out) {
   return out;
 }
 const IK = { kx: 0, ky: 0, fx: 0, fy: 0 };
+const HAND = { x: 0, y: 0, ang: 0 };      // where the last drawn arm ended (weapons are attached here)
 
 function drawLeg(ctx, b, hx, hy, fx, fy, dim) {
   const half = b.legLen / 2 + 1;
@@ -190,6 +198,7 @@ function drawArm(ctx, a, sx, sy, tx, ty, back) {
   // segment length adapts so a punch looks straight at full extension and bent when pulled back
   const seg = Math.max(46, Math.hypot(tx - sx, ty - sy) * 0.53);
   ik(sx, sy, tx, ty, seg, seg, IK);
+  HAND.x = IK.fx; HAND.y = IK.fy; HAND.ang = Math.atan2(IK.fy - sy, IK.fx - sx);   // overall arm direction
   // elbows bend downward for arms
   if (IK.ky < (sy + ty) / 2 - 1) { // flip bend side if it went up
     const mx = (sx + IK.fx) / 2, my = (sy + IK.fy) / 2;
@@ -284,6 +293,15 @@ export function drawFighter(ctx, f, sprite, pose, alpha = 1, auraColor) {
   const cl = Math.cos(pose.lean), sl = Math.sin(pose.lean);
   const sx = pose.ox + shx0 * cl + shy0 * sl, sy = hipY + pose.bob - shy0 * cl + shx0 * sl * 0;
 
+  // weapon slung over the shoulder while it is not being swung
+  const hasW = pose.weapon && pose.weapon !== 'fists';
+  if (hasW && pose.weapon !== 'knuckles' && !(pose.wield && pose.limb === 1)) {
+    ctx.save();
+    ctx.translate(sx - 4, sy + 14); ctx.rotate(-2.3); ctx.scale(0.8, 0.8);
+    drawWeapon(ctx, pose.weapon, WEAPONS[pose.weapon].len, pose.t);
+    ctx.restore();
+  }
+
   // torso sprite
   ctx.save();
   ctx.translate(pose.ox, hipY + pose.bob);
@@ -316,6 +334,15 @@ export function drawFighter(ctx, f, sprite, pose, alpha = 1, auraColor) {
     drawArm(ctx, a, sx - 4, shoulderY + 2, 56, shoulderY + 22, true);
   } else if (pose.limb === 1) {
     drawArm(ctx, a, sx, shoulderY, pose.ltx, pose.lty, false);
+    if (hasW && pose.wield) {
+      ctx.save();
+      ctx.translate(HAND.x, HAND.y);
+      // raised during the wind-up, brought down through the swing
+      const e = pose.ext, tilt = e < 0 ? -1.3 * Math.min(1, -e / 0.22) : (1 - e) * -1.0 + e * 0.22;
+      ctx.rotate(tilt);
+      drawWeapon(ctx, pose.weapon, pose.wlen, pose.t);
+      ctx.restore();
+    }
   }
   ctx.restore();
 }

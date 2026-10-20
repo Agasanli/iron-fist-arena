@@ -30,6 +30,7 @@ sub-folder. Note that browsers will not load ES modules from `file://`, so serve
 | Menu item | What it does |
 |---|---|
 | **Play** | Quick fight against the AI using your saved characters / arena / difficulty |
+| **Team Battle** | 2 vs 2 on one stage, each fighter assigned to P1 keys / P2 keys / CPU |
 | **Online** | Play a friend over the internet with a room code or invite link (peer-to-peer, free, no account) |
 | **Local Multiplayer** | Two players, same keyboard (or gamepads) |
 | **Fight Against AI** | Choose both fighters, arena and **Easy / Normal / Hard** |
@@ -191,3 +192,32 @@ How it works:
 * The online match cannot be paused (Esc opens a menu while the fight continues). If one player leaves, the other sees a "Disconnected" screen.
 
 Limitations: connections between two very strict networks (symmetric NAT, some corporate or mobile networks) can fail because no TURN relay is included; try another network or a hotspot. Online play was verified with a simulated high-latency link (identical results on both sides over thousands of ticks) and with a real PeerJS handshake inside one browser; it has not yet been tried between two physical machines.
+
+## Weapons
+
+Pick a weapon before each fight (select screens, Team Battle slots and the Online screen). A weapon modifies the character's
+**punch-type normal attacks** (jab, heavy, crouch / jump punches); kicks, specials and ultimates are unchanged. Data lives in `src/entities/weapons.js`.
+
+| Weapon | Effect |
+|---|---|
+| Fists | Balanced, no change |
+| Katana | +30% reach, +8% damage, slightly slower |
+| Bat | +18% reach, +18% damage, more knock-back, a little slow |
+| Hammer | +40% damage, big knock-back, very slow to swing |
+| Nunchaku | Faster strikes, -5% damage |
+| Spear | +55% reach, a bit slower to recover |
+| Knuckles | Faster and +14% damage, shorter reach |
+
+"Random" picks a weapon for every match (offline modes).
+
+## Team battles (2 vs 2)
+
+Four fighters on one stage: slots 1-2 are **Team Blue**, slots 3-4 **Team Red**. A team wins the round when both opponents are
+knocked out (the timer compares the teams' total health). Teammates can walk through each other, there is no friendly fire,
+and every fighter has their own SUPER meter. Offline (Main menu → TEAM BATTLE) each slot is set to **P1 KEYS**, **P2 KEYS** (a second
+player on the same keyboard) or **CPU**.
+
+Online team play: in the Online screen choose **2 vs 2 TEAMS** and your team before creating / joining. The room creator presses **START MATCH** in the lobby once the
+friends are in (at least 2 people); empty places are filled by CPU fighters whose inputs are computed on the creator's machine and sent to everybody.
+The network model is a star: friends connect to the creator, who relays inputs (4-player rooms use a slightly larger 6-tick input delay).
+If anybody leaves during a match it ends for everyone.
