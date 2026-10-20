@@ -13,6 +13,47 @@ const PREFIX = 'ironfist-';
 const ALPHA = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';     // no 0/O/1/I to avoid typos
 const PRESSED = ['pLeft', 'pRight', 'pUp', 'pDown', 'pLight', 'pHeavy', 'pSpecial', 'pBlock', 'pUlt'];
 
+/**
+ * WebRTC needs a TURN relay when the two players are behind strict NATs (different home / mobile networks).
+ * Configure one with build-time env variables (see README):
+ *   VITE_ICE_SERVERS = JSON array of RTCIceServer objects (copy it from your TURN provider), or
+ *   VITE_TURN_URLS (comma separated) + VITE_TURN_USER + VITE_TURN_PASS
+ */
+export function iceServers() {
+  const env = import.meta.env || {};
+  const list = [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun.cloudflare.com:3478' },
+  ];
+  if (env.VITE_ICE_SERVERS) {
+    try { list.push(...JSON.parse(env.VITE_ICE_SERVERS)); } catch (e) { console.warn('VITE_ICE_SERVERS is not valid JSON'); }
+  } else if (env.VITE_TURN_URLS) {
+    list.push({ urls: env.VITE_TURN_URLS.split(',').map((u) => u.trim()).filter(Boolean), username: env.VITE_TURN_USER, credential: env.VITE_TURN_PASS });
+  }
+  return list;
+}
+export const hasTurn = () => iceServers().some((s) => [].concat(s.urls).some((u) => /^turns?:/i.test(u)));
+
+/** Diagnostic: gather ICE candidates for a few seconds and report what kind of connectivity this network has. */
+export async function checkNetwork(ms = 6000) {
+  const res = { direct: false, relay: false, turnConfigured: hasTurn(), error: null };
+  try {
+    const pc = new RTCPeerConnection({ iceServers: iceServers() });
+    pc.createDataChannel('probe');
+    pc.onicecandidate = (e) => {
+      const m = e.candidate && e.candidate.candidate.match(/typ (\w+)/);
+      if (!m) return;
+      if (m[1] === 'srflx') res.direct = true;
+      if (m[1] === 'relay') res.relay = true;
+    };
+    await pc.setLocalDescription(await pc.createOffer());
+    await new Promise((r) => setTimeout(r, ms));
+    pc.close();
+  } catch (e) { res.error = e.message; }
+  return res;
+}
+
 export const makeCode = () => Array.from({ length: 5 }, () => ALPHA[(Math.random() * ALPHA.length) | 0]).join('');
 
 export function encodeInput(o) {
@@ -37,7 +78,7 @@ export function describeNetError(e) {
     case 'peer-unavailable': return 'Room not found. Check the code and make sure your friend created the room.';
     case 'network': case 'server-error': case 'socket-error': case 'socket-closed': case 'disconnected':
       return 'Could not reach the matchmaking server. Check your internet connection and try again.';
-    case 'timeout': return 'Connection timed out. Ask your friend to create a new room.';
+    case 'timeout': return 'Connection timed out. The room was found but no direct connection could be made. This usually means one of you is on a strict network (different home / mobile networks need a TURN relay, see the README). Try "CHECK NETWORK".';
     case 'webrtc': return 'A direct connection could not be established (strict firewall / network). Try another network.';
     case 'full': return 'This room is full.';
     default: return 'Connection problem: ' + (e && (e.message || e.type) || 'unknown error');
@@ -80,7 +121,7 @@ export class Session {
     return new Promise((resolve, reject) => {
       const attempt = (n) => {
         const code = makeCode();
-        const peer = new Peer(PREFIX + code, { debug: 0 });
+        const peer = new Peer(PREFIX + code, { debug: 0, config: { iceServers: iceServers() } });
         this.peer = peer;
         peer.on('open', () => { this.code = code; resolve(code); });
         peer.on('connection', (conn) => this.acceptGuest(conn));
@@ -98,9 +139,9 @@ export class Session {
   join(code, info) {
     this.isHost = false; this.code = code;
     return new Promise((resolve, reject) => {
-      const peer = new Peer({ debug: 0 });
+      const peer = new Peer({ debug: 0, config: { iceServers: iceServers() } });
       this.peer = peer;
-      const timer = setTimeout(() => reject(new Error('timeout')), 15000);
+      const timer = setTimeout(() => reject(new Error('timeout')), 25000);
       peer.on('open', () => {
         const conn = peer.connect(PREFIX + code, { reliable: true });
         this.conn = conn;

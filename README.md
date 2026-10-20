@@ -1,7 +1,7 @@
 # IRON FIST ARENA
 
 A complete 2D fighting game for the browser, built around supplied character photos: eight fighters
-(**Papakha, Delegate, Vusal, Murad, Fatima, Zaur, Emin, Vakil**). Plain Canvas 2D + Web Audio, bundled with Vite. No backend, no
+(**Delegate, Vusal, Murad, Fatima, Zaur, Emin, Vakil**). Plain Canvas 2D + Web Audio, bundled with Vite. No backend, no
 external services, no audio/art files to license: music, sound effects and arenas are generated in code.
 
 ## Quick start
@@ -85,7 +85,6 @@ Two-player keyboard mode shows a warning on touch devices.
 
 | Fighter | Style | Special | Ultimate |
 |---|---|---|---|
-| **Papakha** | Heavyweight brawler | **Hat Rush** – charging strike with afterimages | **Iron Quake** – shockwave on both sides, hits grounded opponents (jump it) |
 | **Delegate** | Fast zoner | **Contract Blast** – thrown paper-contract projectile | **Final Audit** – long multi-hit beam of documents |
 | **Vusal** | Long-range speaker | **Sound Wave** – big, slow sonic arcs | **Bass Drop** – huge sonic burst around him, also hits jumpers |
 | **Murad** | Fast rushdown | **Power Tie Dash** – quick forward dash strike | **Overtime** – close-range 7-hit flurry |
@@ -102,7 +101,7 @@ colours) lives in `src/entities/characters.js`. Retuning a move is a one-line ch
 The images you supplied are single static poses, not sprite sheets. Instead of replacing them with generic fighters:
 
 1. Each image was background-removed once (offline, `scripts/remove-background.mjs`) into `public/assets/characters/*.png`.
-2. At runtime the torso is posed with lean / squash / bob transforms; **legs and attacking limbs are procedural** (2-bone IK) and drawn in matching colours: skin-tone limbs for Papakha, jacket sleeve + white cuff + watch + hand for Delegate. Hits flash white/red; knockdowns rotate the whole body.
+2. At runtime the torso is posed with lean / squash / bob transforms; **legs and attacking limbs are procedural** (2-bone IK) and drawn in matching colours: sleeves, cuffs and hands in matching colours (e.g. jacket sleeve + white cuff + watch + hand for Delegate). Hits flash white/red; knockdowns rotate the whole body.
 3. Facing left is a mirrored draw call (no stretching). Photos whose body is turned to the left are mirrored once at load (`sprite.flip: true`) so torso and legs always point the same way.
 4. Murad's photo is a head-and-shoulders portrait, so a shirt-and-tie torso is drawn under it (`sprite.extend`).
 
@@ -163,7 +162,7 @@ Tip: while running `npm run dev`, open the console and call `sheet('yourId','mov
 ```
 index.html
 package.json / vite.config.js
-public/assets/characters/   papakha.png, delegate.png (cut-outs)
+public/assets/characters/   one transparent cut-out PNG per fighter
 source-images/              the two original uploads
 scripts/remove-background.mjs
 src/
@@ -221,3 +220,16 @@ Online team play: in the Online screen choose **2 vs 2 TEAMS** and your team bef
 friends are in (at least 2 people); empty places are filled by CPU fighters whose inputs are computed on the creator's machine and sent to everybody.
 The network model is a star: friends connect to the creator, who relays inputs (4-player rooms use a slightly larger 6-tick input delay).
 If anybody leaves during a match it ends for everyone.
+
+## Playing across different networks (TURN relay)
+
+Two players on different home / mobile networks often cannot connect directly (strict NAT). WebRTC then needs a **TURN relay**, otherwise the join ends in a timeout.
+The game ships with free public STUN servers only. To add a relay (free, takes ~5 minutes):
+
+1. Create a free account at <https://www.metered.ca> (TURN server) and copy the ICE server list from the dashboard (a JSON array of `{ urls, username, credential }`).
+2. **Vercel:** Project → Settings → Environment Variables → add `VITE_ICE_SERVERS` with that JSON on **one line**, then redeploy.
+   **Local:** create a `.env.local` file with `VITE_ICE_SERVERS=[{"urls":"turn:...","username":"...","credential":"..."}]`.
+   (Alternatively use `VITE_TURN_URLS` (comma separated), `VITE_TURN_USER`, `VITE_TURN_PASS`.)
+3. In the game, Online → **CHECK NETWORK** tells you whether the relay answered.
+
+Only encrypted game inputs pass through the relay (a few KB/s per player). Note that Vite variables are embedded in the public page, so use a relay account you do not mind sharing.

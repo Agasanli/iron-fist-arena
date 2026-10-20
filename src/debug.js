@@ -14,7 +14,7 @@ export function installDebug(game) {
     game.ui.hide();
     const second = opts.mode === 'versus' ? 'p2' : (opts.mode === 'training' ? 'dummy' : 'cpu');
     const slots = opts.slots || [
-      { char: opts.p1 || 'papakha', weapon: opts.w1 || 'fists', ctrl: 'p1' },
+      { char: opts.p1 || 'delegate', weapon: opts.w1 || 'fists', ctrl: 'p1' },
       { char: opts.p2 || 'delegate', weapon: opts.w2 || 'fists', ctrl: second },
     ];
     game.startMatch({ mode: 'ai', arena: 'neon', difficulty: 'normal', ...opts, slots });
@@ -40,7 +40,7 @@ import { getSprite } from './game/Sprites.js';
 import { GROUND } from './game/config.js';
 
 /** Draw a contact sheet of poses for one character into an overlay canvas. */
-window.sheet = (id = 'papakha', which = 'moves', weapon = 'fists') => {
+window.sheet = (id = 'delegate', which = 'moves', weapon = 'fists') => {
   const cfg = CHARACTERS[id];
   const f = new Fighter(cfg, 0, weapon);
   const pose = createPose();

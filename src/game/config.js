@@ -46,8 +46,8 @@ export const DEFAULT_SETTINGS = {
   roundTime: 60,
   roundsToWin: 2,
   touchControls: 'auto',   // auto | on | off
-  p1Char: 'papakha',
-  p2Char: 'delegate',
+  p1Char: 'delegate',
+  p2Char: 'zaur',
   p1Weapon: 'fists',
   p2Weapon: 'fists',
   team: null,

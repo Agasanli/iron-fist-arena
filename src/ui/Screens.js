@@ -5,6 +5,7 @@ import { getPortrait } from '../game/Sprites.js';
 import { audio } from '../audio/AudioEngine.js';
 import { WEAPONS, WEAPON_IDS } from '../entities/weapons.js';
 import { buildOffline, teamSlots } from '../game/matchSetup.js';
+import { checkNetwork } from '../net/Session.js';
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const FOCUSABLE = 'button:not([disabled]), input:not([disabled]), select:not([disabled])';
@@ -354,6 +355,7 @@ export class UI {
           <span class="or">or</span>
           <input id="roomcode" class="codeinput" maxlength="8" autocomplete="off" spellcheck="false" placeholder="ROOM CODE" value="${esc(room || '')}">
           <button class="btn primary" data-act="join">JOIN ROOM</button>
+          <button class="btn chip" data-act="checknet">CHECK NETWORK</button>
         </div>
         <div id="netmsg" class="note netmsg">${esc(msg || '')}</div>
         <div class="actions"><button class="btn" data-act="back">BACK</button></div>
@@ -364,6 +366,19 @@ export class UI {
     if (room) { const j = this.root.querySelector('[data-act="join"]'); if (j) j.focus(); }
   }
   setNetMsg(txt) { const n = this.root.querySelector('#netmsg'); if (n) n.textContent = txt; }
+
+  async do_checknet() {
+    this.setNetMsg('Checking your network (6 seconds)…');
+    const r = await checkNetwork();
+    if (!this.current || this.current.name !== 'online') return;
+    let txt;
+    if (r.error) txt = 'Network check failed: ' + r.error;
+    else if (r.relay) txt = 'Network OK: a relay (TURN) server works, so you can connect to players on any network.';
+    else if (r.turnConfigured) txt = 'A relay server is configured but did not answer (wrong credentials or blocked). Direct connections ' + (r.direct ? 'are still possible.' : 'are also unavailable.');
+    else if (r.direct) txt = 'Direct connections work, but no relay server is configured: playing with friends on strict / different networks may time out. See README → "Playing across different networks".';
+    else txt = 'No usable connection found. Check your internet / firewall.';
+    this.setNetMsg(txt);
+  }
 
   do_onlinesize(t) {
     setSetting('onlineSize', +t.dataset.v);
@@ -407,7 +422,7 @@ export class UI {
     const card = (i) => {
       const p = by[i];
       if (!p) return `<div class="lslot empty"><div class="lname">${size === 4 ? 'CPU (auto-fill)' : 'waiting…'}</div></div>`;
-      const c = CHARACTERS[p.char] || CHARACTERS.papakha, w = WEAPONS[p.weapon] || WEAPONS.fists;
+      const c = CHARACTERS[p.char] || CHARACTERS.delegate, w = WEAPONS[p.weapon] || WEAPONS.fists;
       const who = p.slot === you ? 'YOU' : (p.host ? 'HOST' : 'PLAYER');
       return `<div class="lslot" style="--c1:${c.color}"><img src="${getPortrait(c.id)}" alt=""><div><div class="lname">${c.name}</div><div class="lsub">${w.name} · ${who}</div></div></div>`;
     };

@@ -9,7 +9,7 @@ import { Backdrop } from './Backdrop.js';
 import { loadSprites } from './Sprites.js';
 import { audio } from '../audio/AudioEngine.js';
 import { Session, describeNetError } from '../net/Session.js';
-import { CHARACTER_IDS } from '../entities/characters.js';
+import { CHARACTERS, CHARACTER_IDS } from '../entities/characters.js';
 import { resolveWeapon } from './matchSetup.js';
 
 /**
@@ -38,6 +38,9 @@ export class Game {
 
   async start() {
     await loadSprites();
+    for (const k of ['p1Char', 'p2Char']) {
+      if (!CHARACTERS[settings[k]]) settings[k] = k === 'p1Char' ? 'delegate' : 'zaur';
+    }
     this.backdrop = new Backdrop();
     this.ui = new UI(this, document.querySelector('#ui'));
     this.input.attach();

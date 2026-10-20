@@ -15,43 +15,6 @@ const mv = (o) => ({
 });
 
 export const CHARACTERS = {
-  papakha: {
-    id: 'papakha',
-    name: 'PAPAKHA',
-    title: 'The Iron Hat',
-    blurb: 'Heavyweight bruiser. Slow, brutal, and terrifying up close.',
-    color: '#ffcf4a',
-    color2: '#ff7a1a',
-    sprite: {
-      src: 'assets/characters/papakha.png',
-      flip: true,
-      scale: 0.30,
-      pivotX: 272, pivotY: 554,
-      shoulderX: 34, shoulderH: 98,
-      face: { x: 200, y: 0, w: 150, h: 200 },
-      altFilter: 'sepia(1) saturate(3) hue-rotate(165deg)',
-    },
-    body: {
-      legLen: 86, thigh: 15, shin: 12,
-      legColor: '#a4a4a6', legDark: '#4a4a4d', shorts: '#76767b', shoe: '#8d8d8d',
-      shortsLen: 0.55,
-      arm: { skin: '#b7b7b7', dark: '#555', hi: '#e6e6e6', width: 26, hand: 15, sleeve: null },
-      hurtW: 70, hurtH: 238, crouchH: 150,
-    },
-    stats: { walk: 3.0, back: 2.5, run: 5.6, jump: 16.2, gravity: 0.82, throwRange: 86 },
-    rating: { power: 5, speed: 2, range: 2, defense: 4 },
-    moves: {
-      light: mv({ name: 'Jab', startup: 5, active: 3, recovery: 9, damage: 45, hitstun: 14, knock: 3.2, hitbox: { x: 28, y: 168, w: 78, h: 38 }, meter: 1 }),
-      heavy: mv({ name: 'Iron Hook', startup: 12, active: 4, recovery: 21, damage: 105, hitstun: 22, blockstun: 13, knock: 7.5, hitstop: 9, shake: 4, hitbox: { x: 24, y: 176, w: 100, h: 56 }, sfx: 'heavy', moveVx: 2.4 }),
-      crouchLight: mv({ name: 'Low Kick', startup: 6, active: 3, recovery: 11, damage: 40, hitstun: 13, knock: 3, hitbox: { x: 24, y: 52, w: 92, h: 38 }, level: 'low', limb: 'leg', sfx: 'kick', crouch: true }),
-      crouchHeavy: mv({ name: 'Uppercut', startup: 7, active: 5, recovery: 25, damage: 90, hitstun: 20, blockstun: 12, launch: 12.5, hitstop: 9, shake: 5, hitbox: { x: 10, y: 232, w: 72, h: 170 }, sfx: 'heavy', crouch: true, upward: true }),
-      jumpLight: mv({ name: 'Jump Punch', startup: 4, active: 9, recovery: 0, damage: 50, hitstun: 16, blockstun: 9, hitbox: { x: 10, y: 120, w: 76, h: 60 }, level: 'high', air: true }),
-      jumpHeavy: mv({ name: 'Jump Kick', startup: 7, active: 10, recovery: 0, damage: 85, hitstun: 20, blockstun: 11, knock: 5, hitstop: 8, shake: 3, hitbox: { x: 8, y: 105, w: 92, h: 78 }, level: 'high', limb: 'leg', sfx: 'kick', air: true }),
-      special: mv({ name: 'Hat Rush', startup: 14, active: 16, recovery: 26, damage: 125, hitstun: 24, blockstun: 14, knock: 10, launch: 8, hitstop: 10, shake: 7, hitbox: { x: 14, y: 195, w: 96, h: 130 }, sfx: 'rush', moveVx: 9.5, cooldown: 150, aura: true }),
-      ultimate: mv({ name: 'IRON QUAKE', startup: 20, active: 6, recovery: 44, damage: 290, hitstun: 30, blockstun: 20, knock: 11, launch: 14, hitstop: 16, shake: 16, hitbox: { x: -340, y: 95, w: 680, h: 95 }, sfx: 'ult', groundOnly: true, cinematic: true, scaleExempt: true, quake: true }),
-    },
-  },
-
   delegate: {
     id: 'delegate',
     name: 'DELEGATE',

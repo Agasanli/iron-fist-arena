@@ -11,7 +11,7 @@ const okChar = (c, fallback) => (CHARACTER_IDS.includes(c) ? c : fallback);
 
 /** The four team-battle slots (blue: 0-1, red: 2-3), sanitised against the current roster. */
 export function teamSlots() {
-  const defaults = ['papakha', 'delegate', 'zaur', 'vakil'];
+  const defaults = ['delegate', 'vusal', 'zaur', 'vakil'];
   const raw = Array.isArray(settings.team) ? settings.team : [];
   const slots = defaults.map((d, i) => {
     const s = raw[i] || {};

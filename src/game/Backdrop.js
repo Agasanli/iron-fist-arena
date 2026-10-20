@@ -15,7 +15,7 @@ export class Backdrop {
     this.empty = clearInput(createInputState());
     this.poses = [createPose(), createPose()];
     this.f = null;
-    this.set('papakha', 'delegate', 'neon');
+    this.set('delegate', 'vakil', 'neon');
   }
 
   set(p1, p2, arena) {
