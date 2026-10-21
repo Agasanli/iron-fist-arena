@@ -252,3 +252,32 @@ kbd { background: #261746; border: 1px solid #4b3a78; border-bottom-width: 3px; 
 
 .announce { white-space: nowrap; }
 .announce.win { font-size: 96px; }
+
+/* ---- weapon picker with pictures ---- */
+.wrow { display: block; margin: 8px 0 2px; }
+.wgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(66px, 1fr)); gap: 4px; margin-top: 4px; }
+.wcard { display: flex; flex-direction: column; align-items: center; gap: 0; padding: 3px 2px 2px; text-align: center; transform: none !important; }
+.wcard:hover, .wcard:focus-visible { transform: none !important; }
+.wcard img { width: 100%; height: 40px; object-fit: contain; pointer-events: none; }
+.wcard span { font: 400 11px var(--font); letter-spacing: 1px; line-height: 12px; }
+.wdetail { display: flex; gap: 10px; align-items: center; margin-top: 6px; padding: 6px 8px; background: rgba(255,255,255,.05); border-radius: 8px; min-height: 66px; }
+.wbig { width: 124px; height: 56px; object-fit: contain; flex: none; background: rgba(0,0,0,.25); border-radius: 6px; }
+.wtxt { flex: 1; min-width: 0; } .wtxt b, .wdetail b { font: 400 18px var(--font); letter-spacing: 2px; color: var(--accent); }
+.wtext { font-size: 12px; color: var(--dim); margin-bottom: 3px; }
+.wbar { display: flex; align-items: center; gap: 6px; font-size: 10px; letter-spacing: 1px; color: var(--dim); }
+.wbar span { width: 44px; } .wbar i { flex: 1; height: 5px; background: rgba(255,255,255,.12); border-radius: 3px; position: relative; max-width: 150px; }
+.wbar i::after { content: ""; position: absolute; inset: 0; width: calc(var(--v) * 100%); background: var(--accent); border-radius: 3px; }
+.tslot-weapon { width: 90px; height: 38px; object-fit: contain; background: rgba(0,0,0,.25); border-radius: 6px; }
+.lweapon { width: 64px !important; height: 30px !important; object-fit: contain; margin-left: auto; border-radius: 4px !important; background: rgba(0,0,0,.25); }
+
+.act.a6 { right: 84px; bottom: 164px; width: 56px; height: 56px; background: rgba(40, 140, 90, .55); }
+
+.spec.rng.ready .sfill { background: linear-gradient(#ffd27a, #ff9d1a); }
+.spec.rng .sfill { background: #777; }
+
+.tslot-gear { display: flex; gap: 3px; }
+.tslot-gear img { width: 40px; height: 22px; object-fit: contain; background: rgba(0,0,0,.25); border-radius: 4px; }
+.lgear { display: flex; gap: 3px; margin-left: auto; }
+.lgear img { width: 34px !important; height: 22px !important; object-fit: contain; background: rgba(0,0,0,.25); border-radius: 4px !important; margin: 0; }
+
+.tslot-gear img { width: 48px; height: 28px; }

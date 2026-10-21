@@ -115,6 +115,7 @@ class AudioEngine {
       case 'heavy': this.noise(0.16, 0.7, 'lowpass', 3500, 250); this.tone(110, 'sine', 0.22, 0.8, 38); this.tone(240, 'square', 0.08, 0.18, 60); break;
       case 'kick': this.noise(0.12, 0.6, 'bandpass', 1500, 400, 0, 0.8); this.tone(130, 'triangle', 0.16, 0.7, 45); break;
       case 'block': this.tone(1300, 'square', 0.05, 0.16, 900); this.tone(820, 'sine', 0.14, 0.3, 700); this.noise(0.06, 0.3, 'highpass', 4000, 2000); break;
+      case 'twang': this.tone(720, 'triangle', 0.14, 0.35, 240); this.noise(0.09, 0.2, 'bandpass', 1600, 500); break;
       case 'whoosh': this.noise(0.14, 0.2, 'bandpass', 500, 2200, 0, 0.7); break;
       case 'jump': this.tone(240, 'sine', 0.13, 0.22, 560); break;
       case 'land': this.noise(0.09, 0.3, 'lowpass', 600, 120); this.tone(90, 'sine', 0.1, 0.4, 50); break;

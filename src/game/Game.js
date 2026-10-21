@@ -10,7 +10,7 @@ import { loadSprites } from './Sprites.js';
 import { audio } from '../audio/AudioEngine.js';
 import { Session, describeNetError } from '../net/Session.js';
 import { CHARACTERS, CHARACTER_IDS } from '../entities/characters.js';
-import { resolveWeapon } from './matchSetup.js';
+import { resolveWeapon, resolveShield, resolveRanged } from './matchSetup.js';
 
 /**
  * Top-level application object. Owns the single requestAnimationFrame loop, the canvas,
@@ -182,12 +182,12 @@ export class Game {
     if (!reuse || !s.cfg) {
       const N = s.size, slots = new Array(N).fill(null);
       const usedChars = new Set(players.map((p) => p.char));
-      players.forEach((p) => { slots[p.slot] = { char: p.char, weapon: p.weapon || 'fists', ctrl: 'net' }; });
+      players.forEach((p) => { slots[p.slot] = { char: p.char, weapon: p.weapon || 'fists', shield: p.shield || 'none', ranged: p.ranged || 'none', ctrl: 'net' }; });
       for (let i = 0; i < N; i++) {
         if (slots[i]) continue;
         const char = CHARACTER_IDS.find((c) => !usedChars.has(c)) || CHARACTER_IDS[i % CHARACTER_IDS.length];
         usedChars.add(char);
-        slots[i] = { char, weapon: resolveWeapon('random'), ctrl: 'cpu' };
+        slots[i] = { char, weapon: resolveWeapon('random'), shield: resolveShield('random'), ranged: resolveRanged('random'), ctrl: 'cpu' };
       }
       s.cfg = { slots, arena: settings.arena, roundTime: settings.roundTime, wins: settings.roundsToWin, difficulty: settings.difficulty };
     }

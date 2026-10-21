@@ -11,7 +11,7 @@ import { ACTIONS } from '../game/config.js';
 
 const PREFIX = 'ironfist-';
 const ALPHA = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';     // no 0/O/1/I to avoid typos
-const PRESSED = ['pLeft', 'pRight', 'pUp', 'pDown', 'pLight', 'pHeavy', 'pSpecial', 'pBlock', 'pUlt'];
+const PRESSED = ['pLeft', 'pRight', 'pUp', 'pDown', 'pLight', 'pHeavy', 'pSpecial', 'pBlock', 'pUlt', 'pThrow'];
 
 /**
  * WebRTC needs a TURN relay when the two players are behind strict NATs (different home / mobile networks).
@@ -58,16 +58,18 @@ export const makeCode = () => Array.from({ length: 5 }, () => ALPHA[(Math.random
 
 export function encodeInput(o) {
   let m = 0;
-  for (let i = 0; i < 9; i++) {
+  const n = ACTIONS.length;
+  for (let i = 0; i < n; i++) {
     if (o[ACTIONS[i]]) m |= 1 << i;
-    if (o[PRESSED[i]]) m |= 1 << (9 + i);
+    if (o[PRESSED[i]]) m |= 1 << (n + i);
   }
   return m;
 }
 export function decodeInput(m, o) {
-  for (let i = 0; i < 9; i++) {
+  const n = ACTIONS.length;
+  for (let i = 0; i < n; i++) {
     o[ACTIONS[i]] = !!((m >> i) & 1);
-    o[PRESSED[i]] = !!((m >> (9 + i)) & 1);
+    o[PRESSED[i]] = !!((m >> (n + i)) & 1);
   }
   return o;
 }
@@ -149,7 +151,7 @@ export class Session {
           clearTimeout(timer);
           this.open = true;
           this.pingTimer = setInterval(() => this.send({ t: 'p', ts: performance.now() }), 1500);
-          conn.send({ t: 'hello', char: info.char, weapon: info.weapon, team: info.team | 0 });
+          conn.send({ t: 'hello', char: info.char, weapon: info.weapon, shield: info.shield, ranged: info.ranged, team: info.team | 0 });
           resolve();
         });
         conn.on('data', (d) => this.onData(d, null));
@@ -228,7 +230,7 @@ export class Session {
         if (this.isHost && entry && !entry.info) {
           const slot = this.freeSlotFor(d.team | 0);
           if (slot < 0 || this.started) { this.sendTo(entry.conn, { t: 'full' }); setTimeout(() => { try { entry.conn.close(); } catch (e) { /* ignore */ } }, 300); this.conns = this.conns.filter((c) => c !== entry); return; }
-          entry.slot = slot; entry.info = { char: d.char, weapon: d.weapon, team: slot < 2 && this.size === 4 ? 0 : (this.size === 4 ? 1 : slot) };
+          entry.slot = slot; entry.info = { char: d.char, weapon: d.weapon, shield: d.shield || 'none', ranged: d.ranged || 'none', team: slot < 2 && this.size === 4 ? 0 : (this.size === 4 ? 1 : slot) };
           this.conns.push(entry);
           this.broadcastRoster();
           this.emit('roster');

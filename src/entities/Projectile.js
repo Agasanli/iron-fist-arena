@@ -1,15 +1,18 @@
+import { GROUND } from '../game/config.js';
+
 /** A travelling hitbox (energy orb, etc). Pooled by the Match to avoid per-hit allocations. */
 export class Projectile {
   constructor() { this.active = false; this.rect = { x0: 0, x1: 0, y0: 0, y1: 0 }; }
 
-  spawn(owner, def) {
+  spawn(owner, def, low = false) {
     this.active = true;
     this.owner = owner;
     this.def = def;
     this.dir = owner.facing;
     this.x = owner.x + owner.facing * def.x;
-    this.y = owner.y - def.y;
-    this.px = this.x;
+    this.y = owner.y - (low ? def.y - 85 : def.y);        // low = thrown while holding DOWN
+    this.px = this.x; this.py = this.y;
+    this.vy = def.vy || 0; this.grav = def.gravity || 0; this.grounded = false;
     this.vx = owner.facing * def.vx;
     this.life = def.life;
     this.age = 0;
@@ -18,8 +21,10 @@ export class Projectile {
   }
 
   update() {
-    this.px = this.x;
+    this.px = this.x; this.py = this.y;
     this.x += this.vx;
+    this.vy += this.grav; this.y += this.vy;
+    if (this.grav > 0 && this.y >= GROUND - 6) { this.y = GROUND - 6; this.grounded = true; }
     this.age++;
     if (--this.life <= 0) this.active = false;
     if (this.x < -100 || this.x > 1900) this.active = false;
@@ -29,7 +34,7 @@ export class Projectile {
   getRect() {
     const d = this.def, r = this.rect;
     const a = Math.min(this.px, this.x) - d.w / 2, b = Math.max(this.px, this.x) + d.w / 2;
-    r.x0 = a; r.x1 = b; r.y0 = this.y - d.h / 2; r.y1 = this.y + d.h / 2;
+    r.x0 = a; r.x1 = b; r.y0 = Math.min(this.py, this.y) - d.h / 2; r.y1 = Math.max(this.py, this.y) + d.h / 2;
     return r;
   }
 
@@ -40,7 +45,67 @@ export class Projectile {
     if (st === 'sphere') return this.drawSphere(ctx);
     if (st === 'laser') return this.drawLaser(ctx);
     if (st === 'pizza') return this.drawPizza(ctx);
+    if (st === 'arrow' || st === 'knife') return this.drawStraight(ctx, st);
+    if (st === 'taxe') return this.drawSpinAxe(ctx);
+    if (st === 'star') return this.drawStar(ctx);
+    if (st === 'bomb') return this.drawBomb(ctx);
     this.drawContract(ctx);
+  }
+
+  /** Arrows and knives point along their flight path */
+  drawStraight(ctx, st) {
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    ctx.rotate(Math.atan2(this.vy, this.vx));
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    if (st === 'arrow') {
+      ctx.strokeStyle = '#7a5230'; ctx.lineWidth = 3.5; ctx.beginPath(); ctx.moveTo(-34, 0); ctx.lineTo(28, 0); ctx.stroke();
+      ctx.fillStyle = '#d8dee6'; ctx.strokeStyle = '#4a525c'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(26, -6); ctx.lineTo(42, 0); ctx.lineTo(26, 6); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#d33'; ctx.beginPath(); ctx.moveTo(-34, 0); ctx.lineTo(-42, -6); ctx.lineTo(-26, -1); ctx.lineTo(-26, 1); ctx.lineTo(-42, 6); ctx.closePath(); ctx.fill();
+    } else {
+      ctx.fillStyle = '#3a2a1e'; ctx.fillRect(-22, -3.5, 16, 7);
+      ctx.fillStyle = '#e4e9ef'; ctx.strokeStyle = '#59616b'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(-6, -5.5); ctx.lineTo(14, -5.5); ctx.lineTo(26, 0); ctx.lineTo(-6, 5); ctx.closePath(); ctx.fill(); ctx.stroke();
+    }
+    ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = 0.25;
+    ctx.fillStyle = '#cfe8ff'; ctx.fillRect(-60, -2, 36, 4);
+    ctx.restore();
+  }
+
+  drawSpinAxe(ctx) {
+    ctx.save();
+    ctx.translate(this.x, this.y); ctx.rotate(this.age * 0.38 * this.dir);
+    ctx.fillStyle = '#7a5230'; ctx.fillRect(-26, -3, 52, 6);
+    const g = ctx.createLinearGradient(0, -20, 0, 20); g.addColorStop(0, '#e6ecf2'); g.addColorStop(1, '#7d8794');
+    ctx.fillStyle = g; ctx.strokeStyle = '#2a2f36'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(8, -3); ctx.lineTo(10, -18); ctx.quadraticCurveTo(32, -13, 30, 0); ctx.quadraticCurveTo(32, 13, 10, 18); ctx.lineTo(8, 3); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.restore();
+  }
+
+  drawStar(ctx) {
+    ctx.save();
+    ctx.translate(this.x, this.y); ctx.rotate(this.age * 0.55 * this.dir);
+    ctx.fillStyle = '#cfd6df'; ctx.strokeStyle = '#3a4048'; ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4, rr = i % 2 ? 6 : 17; ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr); }
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#222'; ctx.beginPath(); ctx.arc(0, 0, 3, 0, 7); ctx.fill();
+    ctx.restore();
+  }
+
+  drawBomb(ctx) {
+    ctx.save();
+    ctx.translate(this.x, this.y); ctx.rotate(this.age * 0.18 * this.dir);
+    const g = ctx.createRadialGradient(-6, -6, 2, 0, 0, 20);
+    g.addColorStop(0, '#6a707a'); g.addColorStop(1, '#14161a');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, 19, 0, 7); ctx.fill();
+    ctx.strokeStyle = '#8a6a30'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(4, -17); ctx.quadraticCurveTo(10, -26, 18, -24); ctx.stroke();
+    ctx.globalCompositeOperation = 'lighter';
+    const f = 6 + Math.sin(this.age * 1.4) * 2.5;
+    const sg = ctx.createRadialGradient(18, -24, 0, 18, -24, f * 2.2); sg.addColorStop(0, '#fff6c0'); sg.addColorStop(1, 'rgba(255,150,30,0)');
+    ctx.fillStyle = sg; ctx.beginPath(); ctx.arc(18, -24, f * 2.2, 0, 7); ctx.fill();
+    ctx.restore();
   }
 
   /** Vusal: expanding sonic arcs */

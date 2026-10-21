@@ -43,7 +43,7 @@ export class Match {
 
     const slots = this.slots = opts.slots;
     this.N = slots.length;
-    this.f = slots.map((s, i) => new Fighter(CHARACTERS[s.char], i, s.weapon || 'fists', this.teamOf(i)));
+    this.f = slots.map((s, i) => new Fighter(CHARACTERS[s.char], i, s.weapon || 'fists', this.teamOf(i), s.shield || 'none', s.ranged || 'none'));
     // a character that also appears on the other team gets the recoloured sprite
     this.sprites = slots.map((s, i) => getSprite(s.char, slots.some((o, j) => j < i && o.char === s.char && this.teamOf(j) !== this.teamOf(i))));
     this.poses = slots.map(() => createPose());
@@ -51,7 +51,7 @@ export class Match {
     this.ais = slots.map((s) => (s.ctrl === 'cpu' ? new AI(opts.difficulty || 'normal') : null));
     if (this.training) this.ais[1] = new AI('normal');
     this.foe = new Array(this.N).fill(null);
-    this.projectiles = Array.from({ length: 12 }, () => new Projectile());
+    this.projectiles = Array.from({ length: 24 }, () => new Projectile());
     this.fx = new Effects();
     this.rA = { x0: 0, x1: 0, y0: 0, y1: 0 };
     this.rB = { x0: 0, x1: 0, y0: 0, y1: 0 };
@@ -196,11 +196,16 @@ export class Match {
     }
     if (mv.sfx === 'rush') { audio.sfx('rush'); this.fx.ring(f.x, GROUND, 120, f.cfg.color, 20); this.fx.burst(f.x - f.facing * 30, f.y - 60, 14, f.cfg.color, 7, 24); }
     if (mv.projectile) {
-      const p = this.projectiles.find((q) => !q.active);
-      if (p) p.spawn(f, mv.projectile);
-      audio.sfx('orb');
-      this.fx.burst(f.x + f.facing * 70, f.y - 150, 12, '#8fe8ff', 6, 20);
-      this.fx.add(5, f.x + f.facing * 70, f.y - 150, 0, 0, 12, 70, '#9ff');
+      for (const def of [].concat(mv.projectile)) {
+        const p = this.projectiles.find((q) => !q.active);
+        if (p) p.spawn(f, def, !!(mv.ranged && f.throwLow));
+      }
+      if (mv.ranged) audio.sfx(mv.throwSfx || 'whoosh');
+      else {
+        audio.sfx('orb');
+        this.fx.burst(f.x + f.facing * 70, f.y - 150, 12, '#8fe8ff', 6, 20);
+        this.fx.add(5, f.x + f.facing * 70, f.y - 150, 0, 0, 12, 70, '#9ff');
+      }
     }
     if (mv.quake) {
       audio.sfx('quake'); this.addShake(18);
@@ -282,12 +287,31 @@ export class Match {
     }
     const atWall = (d.x <= BOUND_L + 3 && dir < 0) || (d.x >= BOUND_R - 3 && dir > 0);
 
+    const sh = d.shieldData;
     const blocking = d.state === 'block' && d.grounded &&
-      !(mv.level === 'low' && !d.crouchBlock) && !(mv.level === 'high' && d.crouchBlock);
+      (sh.cover || (!(mv.level === 'low' && !d.crouchBlock) && !(mv.level === 'high' && d.crouchBlock)));
     if (blocking) {
-      const chip = mv.damage > 0 ? Math.max(1, Math.round(mv.damage * 0.1)) : 0;
+      // buckler parry: the shield went up just before the hit
+      if (sh.parry && d.blockTick <= sh.parry && !mv.multi) {
+        const melee = a.state === 'attack' && !mv.style && Math.abs(a.x - d.x) < 300;
+        if (melee) { a.move = null; a.moveId = null; a.state = 'hit'; a.stateTick = 0; a.hitstun = 30; a.vx = -dir * 3; a.buffer.ttl = 0; a.running = false; }
+        d.blockstun = 0; d.meter = Math.min(100, d.meter + 10);
+        this.hitstop = Math.max(this.hitstop, 9); this.addShake(4); this.flashA = Math.max(this.flashA, 0.25);
+        this.fx.ring(cx, cy, 70, '#ffd54a', 18); this.fx.spark(cx, cy, '#ffd54a', 1.4, d.facing);
+        this.fx.text(d.x, d.y - 260, 'PARRY!', '#ffd54a', 34);
+        audio.sfx('block'); audio.sfx('heavy');
+        d.stats.blocks++;
+        return 'parry';
+      }
+      const base = mv.damage > 0 ? Math.round(mv.damage * 0.1 * sh.chip) : 0;
+      const chip = sh.chip === 0 ? 0 : Math.max(1, base);
       d.hp = Math.max(1, d.hp - chip);
-      d.blockstun = mv.blockstun; d.state = 'block'; d.stateTick = 0;
+      d.blockstun = Math.max(2, Math.round(mv.blockstun * sh.stun)); d.state = 'block'; d.stateTick = 0;
+      if (sh.thorns && a.state === 'attack' && !mv.style && Math.abs(a.x - d.x) < 260) {   // spiked shield
+        a.hp = Math.max(1, a.hp - sh.thorns); a.flash = 4;
+        this.fx.text(a.x, a.y - 250, String(sh.thorns), '#ff9a5a', 22);
+        this.fx.spark(a.x + (d.x - a.x) * 0.3, a.y - 120, '#ff9a5a', 0.8, 1);
+      }
       d.vx = dir * mv.knock * 0.8;
       if (atWall && a.state === 'attack') a.vx = -dir * mv.knock * 0.9;
       a.meter = Math.min(100, a.meter + mv.damage * 0.05); d.meter = Math.min(100, d.meter + mv.damage * 0.08);
@@ -389,10 +413,32 @@ export class Match {
         if (d.team === owner.team) continue;
         d.hurtRect(this.rB);
         if (hit(p.rect, this.rB)) {
+          if (p.def.explode) { this.explode(p); p.active = false; break; }
           const res = this.resolveHit(owner, d, p.def, p.rect, this.rB, p.dir, false);
           if (res) { p.active = false; break; }
         }
       }
+    }
+  }
+
+  updateProjectiles() {
+    for (const p of this.projectiles) {
+      if (!p.active) continue;
+      p.update();
+      if (p.grounded) { if (p.def.explode) this.explode(p); p.active = false; }
+    }
+  }
+
+  /** Bomb: area damage around the impact point. */
+  explode(p) {
+    const R = p.def.explode, rect = { x0: p.x - R, x1: p.x + R, y0: p.y - R, y1: p.y + R };
+    this.fx.ring(p.x, GROUND, R, '#ffb12a', 22); this.fx.ring(p.x, GROUND, R * 0.6, '#ffffff', 16);
+    this.fx.burst(p.x, p.y, 30, '#ffb12a', 11, 32, 5); this.fx.dust(p.x, GROUND, 8);
+    audio.sfx('ultBoom'); this.addShake(10); this.flashA = Math.max(this.flashA, 0.35);
+    for (const d of this.f) {
+      if (d.team === p.owner.team) continue;
+      d.hurtRect(this.rB);
+      if (hit(rect, this.rB)) this.resolveHit(p.owner, d, p.def, rect, this.rB, Math.sign(d.x - p.x) || 1, false);
     }
   }
 
@@ -542,7 +588,7 @@ export class Match {
     this.computeFoes();
     for (const o of this.in) clearInput(o);
     for (let i = 0; i < this.N; i++) this.f[i].update(this.in[i], this.foe[i], this);
-    for (const p of this.projectiles) if (p.active) p.update();
+    this.updateProjectiles();
     this.pushApart();
   }
 
@@ -577,7 +623,7 @@ export class Match {
     if (this.hitstop > 0) { this.hitstop--; return; }
 
     for (let i = 0; i < this.N; i++) this.f[i].update(this.in[i], this.foe[i], this);
-    for (const p of this.projectiles) if (p.active) p.update();
+    this.updateProjectiles();
     this.pushApart();
     this.limitDistance();
     this.checkHits();
@@ -625,7 +671,7 @@ export class Match {
     if (this.hitstop > 0) this.hitstop--;
     else {
       for (let i = 0; i < this.N; i++) this.f[i].update(this.in[i], this.foe[i], this);
-      for (const p of this.projectiles) if (p.active) p.update();
+      this.updateProjectiles();
     }
     if (this.phaseTick === 40) this.timeScale = 1;
     if (this.phaseTick >= 78) this.endRound(this.winnerOnKO, false);
@@ -643,7 +689,7 @@ export class Match {
         this.fx.burst(f.x + (Math.random() - 0.5) * 120, f.y - 150 - Math.random() * 110, 3, f.cfg.color, 2.5, 34, 3.5);
       }
     }
-    for (const p of this.projectiles) if (p.active) p.update();
+    this.updateProjectiles();
     this.pushApart();
     if (this.phaseTick > 220) this.finishRoundEnd();
   }

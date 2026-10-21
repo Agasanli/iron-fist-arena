@@ -58,6 +58,7 @@ Rebindable in **Settings**. Defaults:
 | Special | `H` | `Numpad 3` |
 | Block | `R` | `Numpad 0` |
 | **Ultimate** (needs full SUPER meter) | `T` | `Numpad 4` |
+| **Throw / shoot** your ranged item | `Y` | `Numpad 5` |
 
 In single-player modes (Fight vs AI, Play, Training) the **arrow keys and numpad also control Player 1**, so `A`/`D` *or* `←`/`→` both work.
 
@@ -194,7 +195,7 @@ Limitations: connections between two very strict networks (symmetric NAT, some c
 
 ## Weapons
 
-Pick a weapon before each fight (select screens, Team Battle slots and the Online screen). A weapon modifies the character's
+Pick a weapon before each fight from the picture cards (every select screen, each Team Battle slot and the Online screen; the room lobby shows everybody's weapon). A weapon modifies the character's
 **punch-type normal attacks** (jab, heavy, crouch / jump punches); kicks, specials and ultimates are unchanged. Data lives in `src/entities/weapons.js`.
 
 | Weapon | Effect |
@@ -206,6 +207,12 @@ Pick a weapon before each fight (select screens, Team Battle slots and the Onlin
 | Nunchaku | Faster strikes, -5% damage |
 | Spear | +55% reach, a bit slower to recover |
 | Knuckles | Faster and +14% damage, shorter reach |
+| Axe | +30% damage, slow swing |
+| Frying pan | Solid damage, strong knock-back |
+| Guitar | +20% reach, +12% damage |
+| Trident | +45% reach |
+| Whip | +70% reach, -15% damage |
+| Boxing gloves | +20% damage, big knock-back, short reach |
 
 "Random" picks a weapon for every match (offline modes).
 
@@ -233,3 +240,15 @@ The game ships with free public STUN servers only. To add a relay (free, takes ~
 3. In the game, Online → **CHECK NETWORK** tells you whether the relay answered.
 
 Only encrypted game inputs pass through the relay (a few KB/s per player). Note that Vite variables are embedded in the public page, so use a relay account you do not mind sharing.
+
+## Shields and ranged items
+
+Besides a weapon every fighter can carry a **shield** and a **ranged item** (picture cards in all select screens, Team Battle slots and the Online screen).
+
+**Shields** (hold Block to raise them): *Buckler* - raise it right as a hit lands to **parry** (the attacker is stunned, no damage); *Round shield* - much less chip damage and faster recovery from blocks;
+*Tower shield* - blocks high and low attacks and takes no chip damage, but you walk slower; *Spiked shield* - blocked melee hits hurt the attacker. (Data: `src/entities/shields.js`.)
+
+**Ranged items** (press **Throw / Shoot**, each has a cooldown shown by the RANGED bar; hold Down for a low shot): *Bow* (fast arrows), *Throwing knives* (quick), *Throwing axe* (arcing, hits hard),
+*Shuriken* (three stars in a fan), *Bomb* (arcs and explodes, area damage). Projectiles can be blocked, they cancel each other out, and shields work against them. (Data: `src/entities/ranged.js`.)
+
+CPU fighters use their ranged item from a distance. Online, shield and ranged choices are part of each player's setup and every machine simulates them identically (the extra input is just one more bit per tick).

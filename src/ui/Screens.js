@@ -3,9 +3,20 @@ import { ARENAS, ACTIONS, ACTION_LABELS, DIFFICULTIES, LAPTOP_P2, DEFAULT_BINDIN
 import { CHARACTERS, CHARACTER_IDS } from '../entities/characters.js';
 import { getPortrait } from '../game/Sprites.js';
 import { audio } from '../audio/AudioEngine.js';
-import { WEAPONS, WEAPON_IDS } from '../entities/weapons.js';
+import { WEAPONS, WEAPON_IDS, weaponIcon, weaponBars } from '../entities/weapons.js';
+import { SHIELDS, SHIELD_IDS, shieldIcon, shieldBars } from '../entities/shields.js';
+import { RANGED, RANGED_IDS, rangedIcon, rangedBars } from '../entities/ranged.js';
 import { buildOffline, teamSlots } from '../game/matchSetup.js';
 import { checkNetwork } from '../net/Session.js';
+
+// the three pieces of gear every fighter can carry
+const GEAR = {
+  weapon: { label: 'WEAPON', ids: WEAPON_IDS, data: WEAPONS, key: 'Weapon', none: 'fists', icon: weaponIcon,
+    bars: (id) => { const b = weaponBars(id); return [['REACH', b.range], ['POWER', b.damage], ['SPEED', b.speed]]; } },
+  shield: { label: 'SHIELD', ids: SHIELD_IDS, data: SHIELDS, key: 'Shield', none: 'none', icon: shieldIcon, bars: shieldBars },
+  ranged: { label: 'RANGED', ids: RANGED_IDS, data: RANGED, key: 'Ranged', none: 'none', icon: rangedIcon, bars: rangedBars },
+};
+const gearKey = (kind, p) => (p ? 'p2' : 'p1') + GEAR[kind].key;
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const FOCUSABLE = 'button:not([disabled]), input:not([disabled]), select:not([disabled])';
@@ -141,7 +152,8 @@ export class UI {
           <button class="btn primary" data-act="play" data-autofocus>PLAY <small>Quick fight vs AI</small></button>
           <button class="btn" data-act="mode" data-mode="versus">LOCAL MULTIPLAYER</button>
           <button class="btn" data-act="goto" data-to="team">TEAM BATTLE <small>2 vs 2 on one stage</small></button>
-          <button class="btn" data-act="goto" data-to="online">ONLINE <small>Play a friend with a room code</small></button>
+          <button class="btn" data-act="goto" data-to="online" data-size="2">ONLINE 1 VS 1 <small>Room code</small></button>
+          <button class="btn" data-act="goto" data-to="online" data-size="4">ONLINE 2 VS 2 <small>Team battle with friends</small></button>
           <button class="btn" data-act="mode" data-mode="ai">FIGHT AGAINST AI</button>
           <button class="btn" data-act="mode" data-mode="pick">CHARACTER SELECTION</button>
           <button class="btn" data-act="mode" data-mode="training">TRAINING MODE</button>
@@ -158,31 +170,43 @@ export class UI {
     this.game.startMatch(buildOffline('ai'));
   }
   do_mode(t) { this.show('select', { mode: t.dataset.mode }); }
-  do_goto(t) { this.show(t.dataset.to); }
-
-  // ------------------------------------------------------------ SELECT
-  weaponChips(p, allowRandom) {
-    const cur = settings[p ? 'p2Weapon' : 'p1Weapon'];
-    const ids = allowRandom ? [...WEAPON_IDS, 'random'] : WEAPON_IDS;
-    const chips = ids.map((id) => {
-      const w = WEAPONS[id];
-      return `<button class="btn chip wchip ${cur === id ? 'sel' : ''}" data-act="pickweapon" data-p="${p}" data-id="${id}">${w ? w.name : 'RANDOM'}</button>`;
-    }).join('');
-    return `<div class="wrow" data-wp="${p}"><span class="wlabel">WEAPON</span>${chips}<div class="wdesc" data-wdesc="${p}"></div></div>`;
+  do_goto(t) {
+    if (t.dataset.size) setSetting('onlineSize', +t.dataset.size);
+    this.show(t.dataset.to);
   }
 
-  refreshWeapons() {
+  // ------------------------------------------------------------ SELECT
+  /** One picker (picture cards + detail box) for weapon / shield / ranged item of fighter p. */
+  gearChips(kind, p, allowRandom) {
+    const G = GEAR[kind], cur = settings[gearKey(kind, p)];
+    const ids = allowRandom ? [...G.ids, 'random'] : G.ids;
+    const cards = ids.map((id) => {
+      const d = G.data[id];
+      const name = d ? d.name : 'RANDOM';
+      return `<button class="btn wcard ${cur === id ? 'sel' : ''}" data-act="pickgear" data-kind="${kind}" data-p="${p}" data-id="${id}" title="${esc(name)}"><img src="${G.icon(id)}" alt=""><span>${name}</span></button>`;
+    }).join('');
+    return `<div class="wrow" data-kind="${kind}" data-wp="${p}"><div class="wlabel">${G.label}</div><div class="wgrid">${cards}</div><div class="wdetail"></div></div>`;
+  }
+
+  gearRows(p, allowRandom) { return ['weapon', 'shield', 'ranged'].map((k) => this.gearChips(k, p, allowRandom)).join(''); }
+
+  /** Marks the chosen cards and fills each detail box (picture, description, stat bars). */
+  refreshGear() {
     this.root.querySelectorAll('.wrow').forEach((row) => {
-      const p = +row.dataset.wp, cur = settings[p ? 'p2Weapon' : 'p1Weapon'];
-      row.querySelectorAll('.wchip').forEach((b) => b.classList.toggle('sel', b.dataset.id === cur));
-      const d = row.querySelector('.wdesc');
-      if (d) d.textContent = cur === 'random' ? 'A random weapon is picked for every match.' : (WEAPONS[cur] || WEAPONS.fists).desc;
+      const kind = row.dataset.kind, p = +row.dataset.wp, G = GEAR[kind], cur = settings[gearKey(kind, p)];
+      row.querySelectorAll('.wcard').forEach((b) => b.classList.toggle('sel', b.dataset.id === cur));
+      const d = row.querySelector('.wdetail');
+      if (!d) return;
+      if (cur === 'random') { d.innerHTML = `<img class="wbig" src="${G.icon('random')}" alt=""><div class="wtxt"><b>RANDOM</b><div class="wtext">A random ${G.label.toLowerCase()} is picked for every match.</div></div>`; return; }
+      const w = G.data[cur] || G.data[G.none];
+      const bars = (G.bars(w.id) || []).map(([l, v]) => `<div class="wbar"><span>${l}</span><i style="--v:${v}"></i></div>`).join('');
+      d.innerHTML = `<img class="wbig" src="${G.icon(w.id)}" alt=""><div class="wtxt"><b>${w.name}</b><div class="wtext">${esc(w.desc)}</div>${bars}</div>`;
     });
   }
 
-  do_pickweapon(t) {
-    setSetting(+t.dataset.p ? 'p2Weapon' : 'p1Weapon', t.dataset.id);
-    this.refreshWeapons();
+  do_pickgear(t) {
+    setSetting(gearKey(t.dataset.kind, +t.dataset.p), t.dataset.id);
+    this.refreshGear();
   }
 
   screen_select({ mode }) {
@@ -201,9 +225,9 @@ export class UI {
         <h2>${MODE_TITLES[mode]}</h2>
         ${touchNote}
         <div class="sel-grid">
-          <div class="sel-col"><h3>PLAYER 1</h3><div class="tiles">${tiles(0)}</div>${this.weaponChips(0, true)}<div class="cdetail" data-info="0"></div></div>
+          <div class="sel-col"><h3>PLAYER 1</h3><div class="tiles">${tiles(0)}</div>${this.gearRows(0, true)}<div class="cdetail" data-info="0"></div></div>
           <div class="vs">VS</div>
-          <div class="sel-col"><h3>${p2Label}</h3><div class="tiles">${tiles(1)}</div>${this.weaponChips(1, true)}<div class="cdetail" data-info="1"></div></div>
+          <div class="sel-col"><h3>${p2Label}</h3><div class="tiles">${tiles(1)}</div>${this.gearRows(1, true)}<div class="cdetail" data-info="1"></div></div>
         </div>
         <div class="row"><span class="lbl">ARENA</span>${arenas}</div>
         ${mode === 'ai' ? `<div class="row"><span class="lbl">DIFFICULTY</span>${diffs}</div>` : ''}
@@ -237,7 +261,7 @@ export class UI {
         <p>${esc(c.blurb)}</p>
         <ul><li><b>Light</b> ${m.light.name}</li><li><b>Heavy</b> ${m.heavy.name}</li><li><b>Special</b> ${m.special.name}</li><li><b>Ultimate</b> ${m.ultimate.name}</li></ul>`;
     });
-    this.refreshWeapons();
+    this.refreshGear();
     this.game.backdrop.set(settings.p1Char, settings.p2Char, settings.arena);
   }
 
@@ -271,8 +295,11 @@ export class UI {
         <div class="tslot-head">${names[i]}</div>
         <img class="tslot-img" alt="">
         <div class="tslot-name"></div>
+        <div class="tslot-gear"><img class="tg-w" alt=""><img class="tg-s" alt=""><img class="tg-r" alt=""></div>
         <div class="cyc"><button class="btn chip" data-act="cyc" data-slot="${i}" data-what="char" data-d="-1">◀</button><span class="cycv" data-v="char"></span><button class="btn chip" data-act="cyc" data-slot="${i}" data-what="char" data-d="1">▶</button></div>
         <div class="cyc"><button class="btn chip" data-act="cyc" data-slot="${i}" data-what="weapon" data-d="-1">◀</button><span class="cycv" data-v="weapon"></span><button class="btn chip" data-act="cyc" data-slot="${i}" data-what="weapon" data-d="1">▶</button></div>
+        <div class="cyc"><button class="btn chip" data-act="cyc" data-slot="${i}" data-what="shield" data-d="-1">◀</button><span class="cycv" data-v="shield"></span><button class="btn chip" data-act="cyc" data-slot="${i}" data-what="shield" data-d="1">▶</button></div>
+        <div class="cyc"><button class="btn chip" data-act="cyc" data-slot="${i}" data-what="ranged" data-d="-1">◀</button><span class="cycv" data-v="ranged"></span><button class="btn chip" data-act="cyc" data-slot="${i}" data-what="ranged" data-d="1">▶</button></div>
         <div class="cyc"><button class="btn chip" data-act="cyc" data-slot="${i}" data-what="ctrl" data-d="-1">◀</button><span class="cycv" data-v="ctrl"></span><button class="btn chip" data-act="cyc" data-slot="${i}" data-what="ctrl" data-d="1">▶</button></div>
       </div>`;
     return `
@@ -305,6 +332,12 @@ export class UI {
       el.querySelector('.tslot-name').textContent = c.name;
       el.querySelector('[data-v="char"]').textContent = c.name;
       el.querySelector('[data-v="weapon"]').textContent = s.weapon === 'random' ? 'RANDOM' : WEAPONS[s.weapon].name;
+      const nm = (G, v) => (v === 'random' ? 'RANDOM' : G.data[v].name);
+      el.querySelector('[data-v="shield"]').textContent = nm(GEAR.shield, s.shield);
+      el.querySelector('[data-v="ranged"]').textContent = nm(GEAR.ranged, s.ranged);
+      el.querySelector('.tg-w').src = weaponIcon(s.weapon);
+      el.querySelector('.tg-s').src = shieldIcon(s.shield);
+      el.querySelector('.tg-r').src = rangedIcon(s.ranged);
       el.querySelector('[data-v="ctrl"]').textContent = label[s.ctrl];
       el.classList.toggle('human', s.ctrl !== 'cpu');
     });
@@ -317,6 +350,8 @@ export class UI {
     const cycle = (list, cur) => list[(list.indexOf(cur) + d + list.length) % list.length];
     if (what === 'char') s.char = cycle(CHARACTER_IDS, s.char);
     else if (what === 'weapon') s.weapon = cycle([...WEAPON_IDS, 'random'], s.weapon);
+    else if (what === 'shield') s.shield = cycle([...SHIELD_IDS, 'random'], s.shield);
+    else if (what === 'ranged') s.ranged = cycle([...RANGED_IDS, 'random'], s.ranged);
     else {
       s.ctrl = cycle(['cpu', 'p1', 'p2'], s.ctrl);
       // a keyboard can only be used once: the previous owner becomes a CPU
@@ -347,7 +382,7 @@ export class UI {
         <p class="note">One player creates a room and shares the code (or the invite link). Friends join with it. The match runs directly between your browsers. In 2 vs 2 you can play with up to 4 people, empty places are filled by CPU fighters.</p>
         <h3>YOUR FIGHTER</h3>
         <div class="tiles">${tiles}</div>
-        ${this.weaponChips(0, false)}
+        ${this.gearRows(0, false)}
         <div class="row"><span class="lbl">ROOM</span>${sizes}<span class="lbl" style="width:auto;margin-left:10px">YOUR TEAM</span>${teams}</div>
         <div class="row"><span class="lbl">ARENA</span>${arenas}<span class="note">(room creator's choice)</span></div>
         <div class="row online-actions">
@@ -390,7 +425,8 @@ export class UI {
   }
 
   myOnlineInfo() {
-    return { char: settings.p1Char, weapon: settings.p1Weapon === 'random' ? 'fists' : settings.p1Weapon, team: settings.onlineTeam };
+    const fix = (v, dflt) => (v === 'random' ? dflt : v);
+    return { char: settings.p1Char, weapon: fix(settings.p1Weapon, 'fists'), shield: fix(settings.p1Shield, 'none'), ranged: fix(settings.p1Ranged, 'none'), team: settings.onlineTeam };
   }
 
   do_create() {
@@ -424,7 +460,7 @@ export class UI {
       if (!p) return `<div class="lslot empty"><div class="lname">${size === 4 ? 'CPU (auto-fill)' : 'waiting…'}</div></div>`;
       const c = CHARACTERS[p.char] || CHARACTERS.delegate, w = WEAPONS[p.weapon] || WEAPONS.fists;
       const who = p.slot === you ? 'YOU' : (p.host ? 'HOST' : 'PLAYER');
-      return `<div class="lslot" style="--c1:${c.color}"><img src="${getPortrait(c.id)}" alt=""><div><div class="lname">${c.name}</div><div class="lsub">${w.name} · ${who}</div></div></div>`;
+      return `<div class="lslot" style="--c1:${c.color}"><img src="${getPortrait(c.id)}" alt=""><div><div class="lname">${c.name}</div><div class="lsub">${w.name} · ${who}</div></div><div class="lgear"><img src="${weaponIcon(w.id)}" alt="">${p.shield && p.shield !== 'none' ? `<img src="${shieldIcon(p.shield)}" alt="">` : ''}${p.ranged && p.ranged !== 'none' ? `<img src="${rangedIcon(p.ranged)}" alt="">` : ''}</div></div>`;
     };
     const teamsHtml = size === 4
       ? `<div class="lteams"><div><h3 class="blue">TEAM BLUE</h3>${card(0)}${card(1)}</div><div class="vs">VS</div><div><h3 class="red">TEAM RED</h3>${card(2)}${card(3)}</div></div>`
@@ -584,6 +620,8 @@ export class UI {
               <li><b>Ultimate:</b> fill the SUPER meter (damage dealt and taken) and press the Ultimate key.</li>
               <li>Long combos lose damage and end in a knockdown, so they cannot go on forever.</li>
               <li><b>Weapons:</b> pick one before the fight (katana, bat, hammer, nunchaku, spear, knuckles). It changes reach, damage and speed of your <i>punch</i> attacks; kicks, specials and ultimates stay the same.</li>
+              <li><b>Shields:</b> hold Block to raise it. Buckler: block just as a hit lands to <i>parry</i>. Round: little chip damage. Tower: covers high and low, but slow. Spiked: hurts melee attackers.</li>
+              <li><b>Throw / Shoot:</b> press the Throw key to use your ranged item (bow, knives, throwing axe, shuriken, bomb). Each has a cooldown; hold Down for a low shot.</li>
               <li><b>Team Battle (2 vs 2):</b> four fighters share the stage. A team wins the round when both enemies are knocked out. Teammates can walk through each other.</li>
               <li><b>Online:</b> create a room and share the code. In 2 vs 2 rooms up to 4 friends can play, empty places are filled by CPU fighters.</li>
             </ul>

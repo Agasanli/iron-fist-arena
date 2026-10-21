@@ -3,7 +3,7 @@ const BUTTONS = [
   { a: 'left', t: '◀', cls: 'dpad l' }, { a: 'right', t: '▶', cls: 'dpad r' },
   { a: 'up', t: '▲', cls: 'dpad u' }, { a: 'down', t: '▼', cls: 'dpad d' },
   { a: 'light', t: 'L', cls: 'act a1' }, { a: 'heavy', t: 'H', cls: 'act a2' },
-  { a: 'special', t: 'S', cls: 'act a3' }, { a: 'block', t: 'B', cls: 'act a4' }, { a: 'ult', t: 'U', cls: 'act a5' },
+  { a: 'special', t: 'S', cls: 'act a3' }, { a: 'throw', t: 'R', cls: 'act a6' }, { a: 'block', t: 'B', cls: 'act a4' }, { a: 'ult', t: 'U', cls: 'act a5' },
 ];
 
 export class TouchControls {

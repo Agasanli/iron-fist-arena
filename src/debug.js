@@ -14,8 +14,8 @@ export function installDebug(game) {
     game.ui.hide();
     const second = opts.mode === 'versus' ? 'p2' : (opts.mode === 'training' ? 'dummy' : 'cpu');
     const slots = opts.slots || [
-      { char: opts.p1 || 'delegate', weapon: opts.w1 || 'fists', ctrl: 'p1' },
-      { char: opts.p2 || 'delegate', weapon: opts.w2 || 'fists', ctrl: second },
+      { char: opts.p1 || 'delegate', weapon: opts.w1 || 'fists', shield: opts.s1 || 'none', ranged: opts.r1 || 'none', ctrl: 'p1' },
+      { char: opts.p2 || 'delegate', weapon: opts.w2 || 'fists', shield: opts.s2 || 'none', ranged: opts.r2 || 'none', ctrl: second },
     ];
     game.startMatch({ mode: 'ai', arena: 'neon', difficulty: 'normal', ...opts, slots });
     w.M = game.match;
@@ -110,7 +110,8 @@ window.netTest = (o = {}) => {
   H.humans = [...Array(nh).keys()]; H.bots = [...Array(size).keys()].filter((i) => i >= nh);
   sess.forEach((s) => s.resetLock(1, size));
   const chars = ['vakil', 'zaur', 'emin', 'fatima'], weps = ['katana', 'hammer', 'spear', 'bat'];
-  const slots = Array.from({ length: size }, (_, i) => ({ char: chars[i], weapon: weps[i], ctrl: i < nh ? 'net' : 'cpu' }));
+  const shs = ['buckler', 'tower', 'spiked', 'round'], rgs = ['bow', 'bomb', 'knives', 'taxe'];
+  const slots = Array.from({ length: size }, (_, i) => ({ char: chars[i], weapon: weps[i], shield: shs[i], ranged: rgs[i], ctrl: i < nh ? 'net' : 'cpu' }));
   const opts = { mode: 'online', slots, arena: 'neon', roundTime: 60, roundsToWin: 2, difficulty: 'hard' };
   const ms = sess.map((s, i) => new Match(mkGame(10 + i), { ...opts, net: s }));
   const hist = ms.map(() => ({})); const ticks = ms.map(() => 0);

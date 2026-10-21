@@ -10,27 +10,27 @@ export const TICK = 1 / 60;
 export const MAX_HP = 1000;
 export const PUSH_W = 62;         // body push box width
 
-export const ACTIONS = ['left', 'right', 'up', 'down', 'light', 'heavy', 'special', 'block', 'ult'];
+export const ACTIONS = ['left', 'right', 'up', 'down', 'light', 'heavy', 'special', 'block', 'ult', 'throw'];
 export const ACTION_LABELS = {
   left: 'Move Left', right: 'Move Right', up: 'Jump', down: 'Crouch',
-  light: 'Light Attack', heavy: 'Heavy Attack', special: 'Special', block: 'Block', ult: 'Ultimate',
+  light: 'Light Attack', heavy: 'Heavy Attack', special: 'Special', block: 'Block', ult: 'Ultimate', throw: 'Throw / Shoot',
 };
 
 export const DEFAULT_BINDINGS = [
   {
     left: 'KeyA', right: 'KeyD', up: 'KeyW', down: 'KeyS',
-    light: 'KeyF', heavy: 'KeyG', special: 'KeyH', block: 'KeyR', ult: 'KeyT',
+    light: 'KeyF', heavy: 'KeyG', special: 'KeyH', block: 'KeyR', ult: 'KeyT', throw: 'KeyY',
   },
   {
     left: 'ArrowLeft', right: 'ArrowRight', up: 'ArrowUp', down: 'ArrowDown',
-    light: 'Numpad1', heavy: 'Numpad2', special: 'Numpad3', block: 'Numpad0', ult: 'Numpad4',
+    light: 'Numpad1', heavy: 'Numpad2', special: 'Numpad3', block: 'Numpad0', ult: 'Numpad4', throw: 'Numpad5',
   },
 ];
 
 // Alternative Player 2 layout for keyboards without a numpad.
 export const LAPTOP_P2 = {
   left: 'ArrowLeft', right: 'ArrowRight', up: 'ArrowUp', down: 'ArrowDown',
-  light: 'Comma', heavy: 'Period', special: 'Slash', block: 'ShiftRight', ult: 'Quote',
+  light: 'Comma', heavy: 'Period', special: 'Slash', block: 'ShiftRight', ult: 'Quote', throw: 'Semicolon',
 };
 
 export const DEFAULT_SETTINGS = {
@@ -50,6 +50,10 @@ export const DEFAULT_SETTINGS = {
   p2Char: 'zaur',
   p1Weapon: 'fists',
   p2Weapon: 'fists',
+  p1Shield: 'none',
+  p2Shield: 'none',
+  p1Ranged: 'none',
+  p2Ranged: 'none',
   team: null,
   onlineSize: 2,           // online room: 2 (1v1) or 4 (2v2)
   onlineTeam: 0,           // preferred team in 2v2 rooms

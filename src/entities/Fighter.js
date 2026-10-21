@@ -1,5 +1,7 @@
 import { GROUND, BOUND_L, BOUND_R, MAX_HP } from '../game/config.js';
 import { applyWeapon } from './weapons.js';
+import { SHIELDS } from './shields.js';
+import { rangedMove } from './ranged.js';
 
 const RANK = { light: 1, crouchLight: 1, heavy: 2, crouchHeavy: 2, special: 3, ultimate: 4 };
 const cap = (s) => s[0].toUpperCase() + s.slice(1);
@@ -9,12 +11,17 @@ const cap = (s) => s[0].toUpperCase() + s.slice(1);
  * No drawing here (see FighterRenderer) and no input reading (see Input / AI).
  */
 export class Fighter {
-  constructor(cfg, index, weapon = 'fists', team = index) {
+  constructor(cfg, index, weapon = 'fists', team = index, shield = 'none', ranged = 'none') {
     this.cfg = cfg;
     this.index = index;
     this.team = team;
     this.weapon = weapon;
+    this.shield = SHIELDS[shield] ? shield : 'none';
+    this.shieldData = SHIELDS[this.shield];
+    this.ranged = ranged;
     this.moves = applyWeapon(cfg.moves, weapon);      // character moves with the weapon's modifiers
+    const rm = rangedMove(ranged);
+    if (rm) this.moves = { ...this.moves, ranged: rm };
     this.wins = 0;
     this.stats = null;
     this.buffer = { action: null, ttl: 0 };
@@ -38,7 +45,7 @@ export class Fighter {
     this.hitDone = false; this.hitMask = 0; this.moveConnected = false; this.multiCount = 0; this.chain = 0;
     this.hitstun = 0; this.blockstun = 0; this.invuln = 0; this.lag = 0;
     this.comboTaken = 0; this.comboDmg = 0; this.juggle = 0; this.flash = 0;
-    this.cdSpecial = 0; this.jumpBuf = 0;
+    this.cdSpecial = 0; this.cdRanged = 0; this.blockTick = 0; this.throwLow = false; this.jumpBuf = 0;
     this.buffer.action = null; this.buffer.ttl = 0;
     this.running = false; this.runDir = 0; this.dashReq = false; this.crouchBlock = false;
     this.airAttackUsed = false; this.walkPhase = 0; this.throwTarget = null;
@@ -92,6 +99,7 @@ export class Fighter {
     else if (inp.pHeavy) this.setBuf('heavy');
     else if (inp.pSpecial) this.setBuf('special');
     else if (inp.pUlt) this.setBuf('ult');
+    else if (inp.pThrow) this.setBuf('throw');
     if (inp.pUp) this.jumpBuf = 6;
     if (inp.pLeft) this.tapDir(-1);
     if (inp.pRight) this.tapDir(1);
@@ -111,6 +119,7 @@ export class Fighter {
   update(inp, opp, m) {
     this.t++; this.stateTick++;
     if (this.cdSpecial > 0) this.cdSpecial--;
+    if (this.cdRanged > 0) this.cdRanged--;
     if (this.invuln > 0) this.invuln--;
     if (this.flash > 0) this.flash--;
     if (this.buffer.ttl > 0) this.buffer.ttl--;
@@ -175,6 +184,7 @@ export class Fighter {
     }
     const st = this.cfg.stats;
     if (inp.block) {
+      if (this.state === 'block') this.blockTick++; else this.blockTick = 0;      // ticks since the shield went up (parry window)
       this.state = 'block'; this.crouchBlock = !!inp.down; this.vx = 0; this.running = false;
       return;
     }
@@ -189,12 +199,12 @@ export class Fighter {
     if (this.running && (this.runDir !== dir)) this.running = false;
     if (this.running) {
       this.state = 'run';
-      this.vx = dir * st.run;
+      this.vx = dir * st.run * this.shieldData.walk;
       if (this.t % 6 === 0) m.dust(this.x - dir * 20, this.y, 1);
       if (this.t % 7 === 0) m.ghost(this);
     } else {
       this.state = 'walk';
-      this.vx = dir * (dir * this.facing > 0 ? st.walk : st.back);
+      this.vx = dir * (dir * this.facing > 0 ? st.walk : st.back) * this.shieldData.walk;
     }
     this.walkPhase += Math.abs(this.vx) * (this.running ? 0.075 : 0.09);
   }
@@ -209,6 +219,11 @@ export class Fighter {
     }
     if (a === 'special') {
       if (this.cdSpecial <= 0 && this.grounded) { this.startMove('special', m); this.stats.specials++; return true; }
+      m.sfx('deny');
+      return false;
+    }
+    if (a === 'throw') {
+      if (this.moves.ranged && this.cdRanged <= 0 && this.grounded) { this.throwLow = !!inp.down; this.startMove('ranged', m); return true; }
       m.sfx('deny');
       return false;
     }
@@ -248,6 +263,7 @@ export class Fighter {
     this.hitDone = false; this.hitMask = 0; this.moveConnected = false; this.multiCount = 0;
     this.buffer.ttl = 0; this.running = false;
     if (id === 'special' && mv.cooldown) this.cdSpecial = mv.cooldown;
+    if (id === 'ranged') this.cdRanged = mv.cooldown;
     if (!mv.air) this.vx *= 0.3;
     if (mv.cinematic) m.onUltStart(this, mv);
   }

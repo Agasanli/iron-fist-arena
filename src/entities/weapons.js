@@ -13,7 +13,51 @@ export const WEAPONS = {
   nunchaku: { id: 'nunchaku', name: 'NUNCHAKU', desc: 'Very fast strikes, slightly less damage.',       range: 1.15, dmg: 0.95, start: -1, rec: -1, knock: 0.9, stop: 0, len: 72 },
   spear:    { id: 'spear',    name: 'SPEAR',    desc: 'Longest reach. Keeps enemies at a distance.',    range: 1.55, dmg: 1.02, start: 1,  rec: 3,  knock: 1,   stop: 0, len: 132 },
   knuckles: { id: 'knuckles', name: 'KNUCKLES', desc: 'Brass knuckles: quick and punchy, short reach.', range: 0.92, dmg: 1.14, start: -1, rec: 0,  knock: 1.1, stop: 1, len: 0 },
+  axe:      { id: 'axe',      name: 'AXE',      desc: 'Heavy chopper: big damage, slow swing.',          range: 1.1,  dmg: 1.3,  start: 3,  rec: 3,  knock: 1.3, stop: 2, len: 84 },
+  pan:      { id: 'pan',      name: 'FRYING PAN', desc: 'Silly but solid: decent damage and a loud clang.', range: 1.05, dmg: 1.05, start: 0, rec: 1,  knock: 1.4, stop: 2, len: 70 },
+  guitar:   { id: 'guitar',   name: 'GUITAR',   desc: 'Rock and roll! Good reach and a nice smash.',     range: 1.2,  dmg: 1.12, start: 1,  rec: 2,  knock: 1.1, stop: 1, len: 92 },
+  trident:  { id: 'trident',  name: 'TRIDENT',  desc: 'Long poker with solid damage.',                   range: 1.45, dmg: 1.1,  start: 1,  rec: 2,  knock: 1,   stop: 0, len: 122 },
+  whip:     { id: 'whip',     name: 'WHIP',     desc: 'Reaches far, but stings rather than smashes.',    range: 1.7,  dmg: 0.85, start: 1,  rec: 1,  knock: 0.7, stop: 0, len: 140 },
+  gloves:   { id: 'gloves',   name: 'BOXING GLOVES', desc: 'Big gloves: strong punches, short reach.',   range: 0.95, dmg: 1.2,  start: 0,  rec: 1,  knock: 1.2, stop: 2, len: 0 },
 };
+
+/** 0..1 bars used by the picker: reach, damage and speed. */
+export function weaponBars(id) {
+  const w = WEAPONS[id] || WEAPONS.fists;
+  const clamp = (v) => Math.max(0.05, Math.min(1, v));
+  return {
+    range: clamp((w.range - 0.8) / 0.9),
+    damage: clamp((w.dmg - 0.75) / 0.7),
+    speed: clamp(1 - (w.start + w.rec + 2) / 12),
+  };
+}
+
+const iconCache = {};
+/** A small picture of the weapon (PNG data URL) for menus. 'random' gives a question mark. */
+export function weaponIcon(id) {
+  if (iconCache[id]) return iconCache[id];
+  const c = document.createElement('canvas');
+  c.width = 160; c.height = 72;
+  const x = c.getContext('2d');
+  if (id === 'random' || !WEAPONS[id]) {
+    x.fillStyle = 'rgba(255,255,255,.85)'; x.font = '900 54px Impact, Arial Black, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
+    x.fillText('?', 80, 38);
+  } else if (id === 'fists') {
+    x.translate(80, 38); x.scale(1.7, 1.7);
+    x.fillStyle = '#e0c4aa'; x.strokeStyle = '#6b4a38'; x.lineWidth = 2;
+    x.beginPath(); x.ellipse(0, 0, 20, 16, 0, 0, 7); x.fill(); x.stroke();
+    x.strokeStyle = '#8a6a52'; for (let i = -9; i <= 9; i += 6) { x.beginPath(); x.moveTo(8, i); x.lineTo(19, i); x.stroke(); }
+  } else {
+    const w = WEAPONS[id], len = w.len || 26;
+    const s = Math.min(2.3, 146 / (len + 46));
+    x.translate(80, 38); x.rotate(-0.28);
+    x.scale(s, s);
+    x.translate(-len / 2 + (w.len ? 0 : -6), 0);
+    drawWeapon(x, id, w.len || 0, 2);
+  }
+  iconCache[id] = c.toDataURL('image/png');
+  return iconCache[id];
+}
 
 export const WEAPON_IDS = Object.keys(WEAPONS);
 
@@ -95,6 +139,63 @@ export function drawWeapon(ctx, id, len, t) {
       const ang = 0.9 + 0.9 * Math.sin((t || 0) * 0.5);
       ctx.strokeStyle = '#aab'; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.moveTo(28, 0); ctx.lineTo(28 + 14, 0); ctx.stroke();
       ctx.save(); ctx.translate(42, 0); ctx.rotate(ang); stick(Math.max(30, len - 42)); ctx.restore();
+      break;
+    }
+    case 'axe': {
+      ctx.fillStyle = '#7a5230'; ctx.fillRect(-20, -3.5, len + 2, 7);
+      ctx.fillStyle = '#4a3220'; ctx.fillRect(-20, -3.5, 14, 7);
+      const g = ctx.createLinearGradient(0, -26, 0, 26);
+      g.addColorStop(0, '#e6ecf2'); g.addColorStop(1, '#7d8794');
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.moveTo(len - 18, -4); ctx.lineTo(len - 14, -25); ctx.quadraticCurveTo(len + 18, -18, len + 15, 0); ctx.quadraticCurveTo(len + 18, 18, len - 14, 25); ctx.lineTo(len - 18, 4); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = '#2a2f36'; ctx.lineWidth = 2; ctx.stroke();
+      break;
+    }
+    case 'pan': {
+      ctx.fillStyle = '#3a2a1e'; ctx.fillRect(-20, -3.5, len - 26, 7);
+      ctx.fillStyle = '#202024'; ctx.beginPath(); ctx.arc(len - 4, 0, 28, 0, 7); ctx.fill();
+      ctx.fillStyle = '#3d3d45'; ctx.beginPath(); ctx.arc(len - 4, 0, 22, 0, 7); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,.2)'; ctx.beginPath(); ctx.ellipse(len - 12, -7, 9, 5, -0.5, 0, 7); ctx.fill();
+      ctx.fillStyle = '#9aa'; ctx.beginPath(); ctx.arc(len - 30, 0, 2.5, 0, 7); ctx.fill();
+      break;
+    }
+    case 'guitar': {
+      const nx = len * 0.34;
+      ctx.fillStyle = '#2a1a10'; ctx.fillRect(-44, -7, 18, 14);                 // headstock
+      ctx.fillStyle = '#6b4220'; ctx.fillRect(-26, -3.5, nx + 28, 7);            // neck
+      ctx.fillStyle = '#d6c9a8'; for (let i = -20; i < nx; i += 9) ctx.fillRect(i, -3.5, 1.5, 7);
+      const g = ctx.createLinearGradient(0, -24, 0, 24);
+      g.addColorStop(0, '#e0463c'); g.addColorStop(1, '#8e1c16');
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.ellipse(nx + 12, 0, 17, 15, 0, 0, 7); ctx.ellipse(nx + 40, 0, 27, 23, 0, 0, 7); ctx.fill();
+      ctx.strokeStyle = '#3a0c08'; ctx.lineWidth = 2; ctx.stroke();
+      ctx.fillStyle = '#1a1010'; ctx.beginPath(); ctx.arc(nx + 36, 0, 7, 0, 7); ctx.fill();
+      ctx.strokeStyle = '#ddd'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(-26, 0); ctx.lineTo(nx + 52, 0); ctx.stroke();
+      break;
+    }
+    case 'trident': {
+      ctx.fillStyle = '#8a6a30'; ctx.fillRect(-34, -3, len - 14, 6);
+      ctx.fillStyle = '#d4dbe4'; ctx.strokeStyle = '#4a5260'; ctx.lineWidth = 1.5;
+      ctx.fillRect(len - 32, -15, 6, 30); ctx.strokeRect(len - 32, -15, 6, 30);
+      const prong = (y) => { ctx.beginPath(); ctx.moveTo(len - 28, y - 3); ctx.lineTo(len + 2, y - 3); ctx.lineTo(len + 16, y); ctx.lineTo(len + 2, y + 3); ctx.lineTo(len - 28, y + 3); ctx.closePath(); ctx.fill(); ctx.stroke(); };
+      prong(-13); prong(0); prong(13);
+      break;
+    }
+    case 'whip': {
+      ctx.fillStyle = '#3a2414'; ctx.fillRect(-20, -3.5, 24, 7);
+      ctx.strokeStyle = '#6b4426'; ctx.lineWidth = 3.5; ctx.beginPath(); ctx.moveTo(4, 0);
+      for (let i = 1; i <= 14; i++) { const px = 4 + (len - 4) * i / 14; ctx.lineTo(px, Math.sin(i * 0.9 + (t || 0) * 0.4) * 7 * (i / 14)); }
+      ctx.stroke();
+      ctx.fillStyle = '#c33'; ctx.beginPath(); ctx.arc(len, Math.sin(14 * 0.9 + (t || 0) * 0.4) * 7, 3.5, 0, 7); ctx.fill();
+      break;
+    }
+    case 'gloves': {
+      ctx.fillStyle = '#f2f2f2'; ctx.fillRect(-18, -11, 12, 22);
+      const g = ctx.createRadialGradient(4, -5, 2, 8, 0, 24);
+      g.addColorStop(0, '#ff6f6a'); g.addColorStop(1, '#a81c1c');
+      ctx.fillStyle = g; ctx.strokeStyle = '#5a0e0e'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.ellipse(8, 0, 21, 17, 0, 0, 7); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.ellipse(2, -15, 9, 6, 0.3, 0, 7); ctx.fill(); ctx.stroke();
       break;
     }
     case 'knuckles': {

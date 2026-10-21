@@ -1,5 +1,6 @@
 import { GROUND } from '../game/config.js';
 import { drawWeapon, WEAPONS } from './weapons.js';
+import { drawShield } from './shields.js';
 
 // Procedural animation: the supplied artwork is a single static image per character, so the
 // torso sprite is posed (lean / squash / bob) while legs and attacking limbs are drawn
@@ -9,7 +10,7 @@ export function createPose() {
   return {
     x: 0, y: 0, facing: 1, lean: 0, bodyRot: 0, sx: 1, sy: 1, hipH: 70, bob: 0, ox: 0, drop: 0,
     ffx: 18, ffy: 0, bfx: -16, bfy: 0, limb: 0, ltx: 0, lty: 0, guard: 0, pump: 0, grab: 0,
-    flash: 0, hurt: 0, aura: 0, ext: 0, weapon: 'fists', wield: 0, wlen: 0, t: 0,
+    flash: 0, hurt: 0, aura: 0, ext: 0, weapon: 'fists', wield: 0, wlen: 0, t: 0, shield: 'none',
   };
 }
 
@@ -32,7 +33,7 @@ export function computePose(f, o) {
   o.flash = f.flash > 0 ? f.flash / 6 : 0;
   o.hurt = (f.state === 'hit' || f.state === 'airhit') ? 0.16 : 0;
   o.aura = 0; o.ext = 0;
-  o.weapon = f.weapon || 'fists'; o.wield = 0; o.wlen = 0; o.t = f.t;
+  o.weapon = f.weapon || 'fists'; o.wield = 0; o.wlen = 0; o.t = f.t; o.shield = f.shield || 'none';
 
   switch (f.state) {
     case 'idle': {
@@ -293,9 +294,17 @@ export function drawFighter(ctx, f, sprite, pose, alpha = 1, auraColor) {
   const cl = Math.cos(pose.lean), sl = Math.sin(pose.lean);
   const sx = pose.ox + shx0 * cl + shy0 * sl, sy = hipY + pose.bob - shy0 * cl + shx0 * sl * 0;
 
+  // shield on the back while it is not raised
+  if (pose.shield !== 'none' && !pose.guard) {
+    ctx.save();
+    ctx.translate(sx - 20, sy + 46); ctx.rotate(-0.25);
+    drawShield(ctx, pose.shield, pose.shield === 'tower' ? 0.5 : 0.6);
+    ctx.restore();
+  }
+
   // weapon slung over the shoulder while it is not being swung
   const hasW = pose.weapon && pose.weapon !== 'fists';
-  if (hasW && pose.weapon !== 'knuckles' && !(pose.wield && pose.limb === 1)) {
+  if (hasW && WEAPONS[pose.weapon].len > 0 && !(pose.wield && pose.limb === 1)) {
     ctx.save();
     ctx.translate(sx - 4, sy + 14); ctx.rotate(-2.3); ctx.scale(0.8, 0.8);
     drawWeapon(ctx, pose.weapon, WEAPONS[pose.weapon].len, pose.t);
@@ -327,6 +336,12 @@ export function drawFighter(ctx, f, sprite, pose, alpha = 1, auraColor) {
     const gy = shoulderY - 26 + (crouch ? 14 : 0);
     drawArm(ctx, a, sx - 4, shoulderY + 2, 38, gy + 10, true);
     drawArm(ctx, a, sx, shoulderY, 46, gy - 6, false);
+    if (pose.shield !== 'none') {                    // the shield is held up in front
+      ctx.save();
+      ctx.translate(64 + Math.sin(pose.t * 2.2) * (pose.hurt ? 2 : 0), shoulderY + (crouch ? 40 : 24) + (pose.shield === 'tower' ? 12 : 0));
+      drawShield(ctx, pose.shield, pose.shield === 'tower' ? 1.2 : 1.35);
+      ctx.restore();
+    }
   } else if (pose.pump) {
     drawArm(ctx, a, sx, shoulderY, 34, shoulderY - 74 + Math.sin(f.t * 0.2) * 8, false);
   } else if (pose.grab) {

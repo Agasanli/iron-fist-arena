@@ -118,6 +118,11 @@ export class AI {
       return;
     }
     const proj = mv.special && mv.special.projectile;
+    // 4b. use the throwable / bow from range
+    if (me.moves.ranged && me.cdRanged <= 0 && dist > reachH + 40 && R() < p.special * 0.8) {
+      this.start('attack', 36, [{ at: 0, a: 'throw', down: R() < 0.2 }]);
+      return;
+    }
     // 5. distance zones
     if (dist < reachL + 30) {
       const r = R();
@@ -215,6 +220,7 @@ export class AI {
       case 'heavy': out.pHeavy = out.heavy = true; break;
       case 'special': out.pSpecial = out.special = true; break;
       case 'ult': out.pUlt = out.ult = true; break;
+      case 'throw': out.pThrow = out.throw = true; break;
       default:
     }
     if (s.down) out.down = true;

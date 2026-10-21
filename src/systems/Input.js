@@ -3,10 +3,10 @@ import { settings } from '../game/settings.js';
 
 const PREVENT = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'Tab', 'Backspace']);
 const mk = () => ({
-  left: false, right: false, up: false, down: false, light: false, heavy: false, special: false, block: false, ult: false,
-  pLeft: false, pRight: false, pUp: false, pDown: false, pLight: false, pHeavy: false, pSpecial: false, pBlock: false, pUlt: false,
+  left: false, right: false, up: false, down: false, light: false, heavy: false, special: false, block: false, ult: false, throw: false,
+  pLeft: false, pRight: false, pUp: false, pDown: false, pLight: false, pHeavy: false, pSpecial: false, pBlock: false, pUlt: false, pThrow: false,
 });
-const P = { left: 'pLeft', right: 'pRight', up: 'pUp', down: 'pDown', light: 'pLight', heavy: 'pHeavy', special: 'pSpecial', block: 'pBlock', ult: 'pUlt' };
+const P = { left: 'pLeft', right: 'pRight', up: 'pUp', down: 'pDown', light: 'pLight', heavy: 'pHeavy', special: 'pSpecial', block: 'pBlock', ult: 'pUlt', throw: 'pThrow' };
 
 export function clearInput(o) {
   for (const k in o) o[k] = false;
@@ -85,7 +85,8 @@ export class Input {
       s.up = ay < -0.6 || b(12) || b(0);
       s.down = ay > 0.6 || b(13);
       s.light = b(2); s.heavy = b(3); s.special = b(1);
-      s.block = b(4) || b(5) || b(6);
+      s.block = b(4) || b(5);
+      s.throw = b(6);
       s.ult = b(7);
     }
   }

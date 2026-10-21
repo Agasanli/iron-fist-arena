@@ -14,6 +14,7 @@ function fighterBlock(side) {
       <div class="meter-row">
         <div class="meter"><div class="mfill"></div><span class="mlabel">SUPER</span></div>
         <div class="spec"><div class="sfill"></div><span class="slabel">SPECIAL</span></div>
+        <div class="spec rng"><div class="sfill"></div><span class="slabel">RANGED</span></div>
       </div>
     </div>
   </div>`;
@@ -79,10 +80,11 @@ export class Hud {
       (t === 0 ? this.el.left : this.el.right).appendChild(b);
       const s = {
         b, img: $(b, 'img'), name: $(b, '.pname'), tag: $(b, '.tag'), pips: $(b, '.pips'), fill: $(b, '.fill'), trail: $(b, '.trail'),
-        mfill: $(b, '.mfill'), meter: $(b, '.meter'), sfill: $(b, '.sfill'), spec: $(b, '.spec'), trailV: MAX_HP, last: {},
+        mfill: $(b, '.mfill'), meter: $(b, '.meter'), sfill: $(b, '.spec:not(.rng) .sfill'), spec: $(b, '.spec:not(.rng)'), rng: $(b, '.spec.rng'), rfill: $(b, '.spec.rng .sfill'), trailV: MAX_HP, last: {},
         firstOfTeam: !this.side.some((o) => o.team === t), team: t,
       };
       s.img.src = getPortrait(f.cfg.id);
+      s.rng.style.display = f.ranged === 'none' ? 'none' : '';
       s.name.textContent = f.cfg.name;
       s.tag.textContent = match.tagFor(f.index);
       b.style.setProperty('--c1', f.cfg.color);
@@ -164,6 +166,11 @@ export class Hud {
       const ready = f.cdSpecial <= 0;
       s.sfill.style.transform = `scaleX(${ready ? 1 : 1 - f.cdSpecial / cd})`;
       s.spec.classList.toggle('ready', ready);
+      if (f.ranged !== 'none') {
+        const rcd = f.moves.ranged.cooldown, rr = f.cdRanged <= 0;
+        s.rfill.style.transform = `scaleX(${rr ? 1 : 1 - f.cdRanged / rcd})`;
+        s.rng.classList.toggle('ready', rr);
+      }
       const w = match.wins[s.team];
       if (s.last.wins !== w || s.last.need !== match.winsNeeded) {
         s.last.wins = w; s.last.need = match.winsNeeded;
